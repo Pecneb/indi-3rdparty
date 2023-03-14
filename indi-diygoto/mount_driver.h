@@ -1,19 +1,25 @@
-/**
- * @file diygoto.h
- * @author Bence Peter (ecneb2000@gmail.com)
- * @brief This mount driver is cloned from the skeleton driver,
- * which is extended to fit the diygoto driver, based on arduino.
- * @version 0.1
- * @date 2023-03-12
- * 
- * @copyright Copyright (c) 2023
- * 
- */
+/*******************************************************************************
+ Copyright(c) 2019 Jasem Mutlaq. All rights reserved.
+
+ This library is free software; you can redistribute it and/or
+ modify it under the terms of the GNU Library General Public
+ License version 2 as published by the Free Software Foundation.
+ .
+ This library is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ Library General Public License for more details.
+ .
+ You should have received a copy of the GNU Library General Public License
+ along with this library; see the file COPYING.LIB.  If not, write to
+ the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
+ Boston, MA 02110-1301, USA.
+*******************************************************************************/
 
 #pragma once
 
-#include "libindi/indiguiderinterface.h"
-#include "libindi/inditelescope.h"
+#include "indiguiderinterface.h"
+#include "inditelescope.h"
 
 /**
  * @brief The MountDriver class provides a simple example for development of a new
@@ -29,7 +35,7 @@
  *
  * On startup and by default the mount shall point to the celestial pole.
  *
- * @author Bence Peter 
+ * @author Jasem Mutlaq
  */
 class MountDriver : public INDI::Telescope, public INDI::GuiderInterface
 {
@@ -41,8 +47,6 @@ class MountDriver : public INDI::Telescope, public INDI::GuiderInterface
         virtual bool updateProperties() override;
 
         virtual bool ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n) override;
-        virtual bool ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int n) override;
-        bool ISNewText(const char *dev, const char *name, char *texts[], char *names[], int n) override;
 
     protected:
         ///////////////////////////////////////////////////////////////////////////////
@@ -155,7 +159,7 @@ class MountDriver : public INDI::Telescope, public INDI::GuiderInterface
         ///////////////////////////////////////////////////////////////////////////////
         /// Class Variables
         ///////////////////////////////////////////////////////////////////////////////
-        IGeographicCoordinates m_GeographicLocation { 0, 0 };
+        INDI::IGeographicCoordinates m_GeographicLocation { 0, 0 };
 
         /////////////////////////////////////////////////////////////////////////////
         /// Static Helper Values

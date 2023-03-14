@@ -10,7 +10,7 @@ set (GENERIC_VERSION_MINOR 1)
 
 #find_package(CFITSIO REQUIRED)
 find_package(INDI REQUIRED)
-find_package(ZLIB REQUIRED)
+#find_package(ZLIB REQUIRED)
 
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/config.h.cmake ${CMAKE_CURRENT_BINARY_DIR}/config.h )
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/indi_diygoto.xml.cmake ${CMAKE_CURRENT_BINARY_DIR}/indi_diygoto.xml )
@@ -24,7 +24,7 @@ include_directories( ${INDI_INCLUDE_DIR})
 
 ############# GENERIC CCD ###############
 set(diygoto_SRCS
-        ${CMAKE_CURRENT_SOURCE_DIR}/ArduinoGotoDriver.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/mount_driver.cpp
 )
 
 add_executable(indi_diygoto ${diygoto_SRCS})
@@ -33,6 +33,6 @@ add_executable(indi_diygoto ${diygoto_SRCS})
 target_link_libraries(indi_diygoto ${INDI_LIBRARIES} ${ZLIB_LIBRARY})
 target_link_libraries(indi_diygoto indidriver)
 
-#install(TARGETS indi_diygoto RUNTIME DESTINATION bin)
+install(TARGETS indi_diygoto RUNTIME DESTINATION bin)
 
-#install(FILES ${CMAKE_CURRENT_BINARY_DIR}/indi_diygoto.xml DESTINATION ${INDI_DATA_DIR})
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/indi_diygoto.xml DESTINATION ${INDI_DATA_DIR})

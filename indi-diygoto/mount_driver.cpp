@@ -1,20 +1,24 @@
-/**
- * @file diygoto.cpp
- * @author Bence Peter (ecneb2000@gmail.com)
- * @brief This mount driver is cloned from the skeleton driver,
- * which is extended to fit the diygoto driver, based on arduino.
- * @version 0.1
- * @date 2023-03-12
- * 
- * @copyright Copyright (c) 2023
- * 
- */
+/*******************************************************************************
+ Copyright(c) 2019 Jasem Mutlaq. All rights reserved.
 
+ This library is free software; you can redistribute it and/or
+ modify it under the terms of the GNU Library General Public
+ License version 2 as published by the Free Software Foundation.
+ .
+ This library is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ Library General Public License for more details.
+ .
+ You should have received a copy of the GNU Library General Public License
+ along with this library; see the file COPYING.LIB.  If not, write to
+ the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
+ Boston, MA 02110-1301, USA.
+*******************************************************************************/
 
+#include "mount_driver.h"
 
-#include "diygoto.h"
-
-#include "libindi/indicom.h"
+#include "indicom.h"
 
 #include <libnova/sidereal_time.h>
 #include <libnova/transform.h>
@@ -22,15 +26,17 @@
 #include <termios.h>
 #include <cmath>
 #include <cstring>
-#include <memory>
+#include <memory> 
 
 // Single unique pointer to the driver.
-static std::unique_ptr<MountDriver> telescope_sim(new MountDriver());
+static std::unique_ptr<MountDriver> telescope(new MountDriver());
 
 MountDriver::MountDriver()
 {
     // Let's specify the driver version
-    setVersion(0, 1);
+    setVersion(1, 0);
+
+    setSimulation(true);
 
     // Set capabilities supported by the mount.
     // The last parameters is the number of slew rates available.
@@ -44,7 +50,7 @@ MountDriver::MountDriver()
 
 const char *MountDriver::getDefaultName()
 {
-    return "Mount Driver";
+    return "ArduinoGOTO";
 }
 
 bool MountDriver::initProperties()
@@ -332,16 +338,16 @@ bool MountDriver::updateLocation(double latitude, double longitude, double eleva
 {
     INDI_UNUSED(elevation);
     // JM: INDI Longitude is 0 to 360 increasing EAST. libnova East is Positive, West is negative
-    m_GeographicLocation.lng = longitude;
+    m_GeographicLocation.longitude = longitude;
 
-    if (m_GeographicLocation.lng > 180)
-        m_GeographicLocation.lng -= 360;
-    m_GeographicLocation.lat = latitude;
+    if (m_GeographicLocation.longitude > 180)
+        m_GeographicLocation.longitude -= 360;
+    m_GeographicLocation.latitude= latitude;
 
     // Implement here the actual calls to the controller to set the location if supported.
 
     // Inform the client that location was updated if all goes well
-    LOGF_INFO("Location updated: Longitude (%g) Latitude (%g)", m_GeographicLocation.lng, m_GeographicLocation.lat);
+    LOGF_INFO("Location updated: Longitude (%g) Latitude (%g)", m_GeographicLocation.longitude, m_GeographicLocation.latitude);
 
     return true;
 }
