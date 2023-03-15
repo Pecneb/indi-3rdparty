@@ -30,7 +30,8 @@ set(diygoto_SRCS
 add_executable(indi_diygoto ${diygoto_SRCS})
 
 #target_link_libraries(indi_diygoto ${INDI_LIBRARIES} ${CFITSIO_LIBRARIES} m ${ZLIB_LIBRARY})
-target_link_libraries(indi_diygoto ${INDI_LIBRARIES} ${ZLIB_LIBRARY})
+#target_link_libraries(indi_diygoto ${INDI_LIBRARIES} ${ZLIB_LIBRARY})
+target_link_libraries(indi_diygoto ${INDI_LIBRARIES})
 target_link_libraries(indi_diygoto indidriver)
 
 install(TARGETS indi_diygoto RUNTIME DESTINATION bin)

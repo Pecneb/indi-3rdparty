@@ -20,13 +20,15 @@
 
 #include "indicom.h"
 
+#include <libindi/indibase.h>
+#include <libindi/indilogger.h>
 #include <libnova/sidereal_time.h>
 #include <libnova/transform.h>
 
 #include <termios.h>
 #include <cmath>
 #include <cstring>
-#include <memory> 
+#include <memory>
 
 // Single unique pointer to the driver.
 static std::unique_ptr<MountDriver> telescope(new MountDriver());
@@ -36,8 +38,6 @@ MountDriver::MountDriver()
     // Let's specify the driver version
     setVersion(1, 0);
 
-    setSimulation(true);
-
     // Set capabilities supported by the mount.
     // The last parameters is the number of slew rates available.
     SetTelescopeCapability(TELESCOPE_CAN_PARK | TELESCOPE_CAN_SYNC | TELESCOPE_CAN_GOTO | TELESCOPE_CAN_ABORT |
@@ -45,7 +45,6 @@ MountDriver::MountDriver()
                            TELESCOPE_HAS_TIME | TELESCOPE_HAS_LOCATION | TELESCOPE_HAS_TRACK_MODE | TELESCOPE_CAN_CONTROL_TRACK |
                            TELESCOPE_HAS_TRACK_RATE,
                            4);
-
 }
 
 const char *MountDriver::getDefaultName()
@@ -55,6 +54,7 @@ const char *MountDriver::getDefaultName()
 
 bool MountDriver::initProperties()
 {
+
     // Make sure to init parent properties first
     INDI::Telescope::initProperties();
 
@@ -85,7 +85,7 @@ bool MountDriver::initProperties()
     // location (Equatorial or Horizontal) and then turn off tracking there and save the location to a file
     // which would be remembered in the next power cycle.
     // This is not required if there is native support in the mount controller itself.
-    SetParkDataType(PARK_AZ_ALT);
+    SetParkDataType(PARK_RA_DEC);
 
     // Let init the pulse guiding properties
     initGuiderProperties(getDeviceName(), MOTION_TAB);
@@ -93,11 +93,14 @@ bool MountDriver::initProperties()
     // Add debug controls
     addDebugControl();
 
+    setSimulation(true);
+
     // Set the driver interface to indicate that we can also do pulse guiding
     setDriverInterface(getDriverInterface() | GUIDER_INTERFACE);
 
     // We want to query the mount every 500ms by default. The user can override this value.
     setDefaultPollingPeriod(500);
+
 
     return true;
 }
@@ -141,6 +144,7 @@ bool MountDriver::updateProperties()
 
 bool MountDriver::Handshake()
 {
+    if (isSimulation()) return true;
     // This functin is ensure that we have communication with the mount
     // Below we send it 0x6 byte and check for 'S' in the return. Change this
     // to be valid for your driver. It could be anything, you can simply put this below
@@ -342,7 +346,7 @@ bool MountDriver::updateLocation(double latitude, double longitude, double eleva
 
     if (m_GeographicLocation.longitude > 180)
         m_GeographicLocation.longitude -= 360;
-    m_GeographicLocation.latitude= latitude;
+    m_GeographicLocation.latitude = latitude;
 
     // Implement here the actual calls to the controller to set the location if supported.
 

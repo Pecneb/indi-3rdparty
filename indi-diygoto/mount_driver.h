@@ -18,8 +18,8 @@
 
 #pragma once
 
-#include "indiguiderinterface.h"
-#include "inditelescope.h"
+#include "libindi/indiguiderinterface.h"
+#include "libindi/inditelescope.h"
 
 /**
  * @brief The MountDriver class provides a simple example for development of a new
