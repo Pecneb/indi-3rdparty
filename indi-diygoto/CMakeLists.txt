@@ -24,7 +24,7 @@ include_directories( ${INDI_INCLUDE_DIR})
 
 ############# GENERIC CCD ###############
 set(diygoto_SRCS
-        ${CMAKE_CURRENT_SOURCE_DIR}/mount_driver.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/simplescope.cpp
 )
 
 add_executable(indi_diygoto ${diygoto_SRCS})

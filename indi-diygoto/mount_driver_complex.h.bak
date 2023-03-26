@@ -20,6 +20,15 @@
 
 #include "libindi/indiguiderinterface.h"
 #include "libindi/inditelescope.h"
+#include <libindi/connectionplugins/connectionserial.h>
+
+#define SIDEREAL_DAY 86164.09053083288
+#define SIDEREAL_SPEED 15.04106864
+#define STELLAR_DAY 86164.098903691
+#define STELLAR_SPEED 15.041067179
+
+#define STEPSIZE_ANGLE 0.9
+#define PULLEY_RATIO 20/60
 
 /**
  * @brief The MountDriver class provides a simple example for development of a new
@@ -165,10 +174,9 @@ class MountDriver : public INDI::Telescope, public INDI::GuiderInterface
         /// Static Helper Values
         /////////////////////////////////////////////////////////////////////////////
         // '#' is the stop char
-        static const char DRIVER_STOP_CHAR { 0x23 };
+        static const char DRIVER_STOP_CHAR { '\0' };
         // Wait up to a maximum of 3 seconds for serial input
         static constexpr const uint8_t DRIVER_TIMEOUT {3};
         // Maximum buffer for sending/receving.
         static constexpr const uint8_t DRIVER_LEN {64};
-
 };
