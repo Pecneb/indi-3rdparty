@@ -28,10 +28,16 @@
 #define STEPSIZE_RA (STEPPER_STEPSIZE / (PULLEY_RATIO * EQ32_RA_WORM_GEAR_RATIO)) // degrees/step
 #define STEPSIZE_DE (STEPPER_STEPSIZE / (PULLEY_RATIO * EQ32_DE_WORM_GEAR_RATIO)) // degrees/step
 
+#define CW 1 // Clockwise rotation of stepper
+#define CCW -1 // Counter Clockwise ratation of stepper
+
 #define GOTO_RATE 2 // slew rate, degrees/s
 #define SLEW_RATE 0.5 // slew rate, degree/s
 #define FINE_SLEW_RATE 0.1 // slew rate, degrees/s
-#define SID_RATE 0.004178 // slew rate, degrees/s
+#define TRACK_RATE 0.004178074 // slew rate, degrees/s
+
+#define RA_AXIS 0
+#define DE_AXIS 1
 
 class SimpleScope : public INDI::Telescope
 {
@@ -49,16 +55,28 @@ class SimpleScope : public INDI::Telescope
         bool Goto(double, double) override;
         bool Abort() override;
 
+        // Tracking
+        bool SetRaTrackRate(double raRate);
+        bool SetDeTrackRate(double deRate);
+        bool GetRaTrackRate();
+        bool GetDeTrackRate();
+        bool SetTrackMode(uint8_t mode) override;
+        bool SetTrackRate(double raRate, double deRate) override; 
+        bool SetTrackEnabled(bool enabled) override;
+
+
+        // Axis positions in steps
         int32_t GetRAEncoder();
         int32_t GetDEEnconder();
 
-        void EncoderToRADEC(int32_t rastep, int32_t destep, double ra, double dec);
-        int32_t EncoderToRA(int32_t rastep);
-        int32_t EncoderToDE(int32_t destep);
-
-        void RADEToSteps(double ra, double de, int32_t rastep, int32_t destep);
+        // Conversions between steps and RA/DE
+        void StepsToRADE(int32_t rastep, int32_t destep, double& ra, double& dec);
+        double StepsToRA(int32_t rastep);
+        double StepsToDE(int32_t destep);
+        void RADEToSteps(double ra, double de, int32_t& rastep, int32_t& destep);
         int32_t RAToSteps(double ra);
         int32_t DEToSteps(double de);
+        double StepsToDEG(int32_t steps, int8_t axis);
 
     private:
         enum Command {
@@ -67,13 +85,15 @@ class SimpleScope : public INDI::Telescope
             PARK = 'C',
             SETPARKPOS = 'D',
             GETAXISSTATUS = 'E',
-            HANDSHAKE = 'F'
+            HANDSHAKE = 'F',
+            ERROR = 'X'
         };
 
         double currentRA {0};
         double currentDEC {90};
-        double targetRA {0};
-        double targetDEC {0};
+        double targetRA;
+        double targetDEC;
+        TelescopePierSide targetPierSide {PIER_UNKNOWN};
 
         int32_t RAStepRel; // Current RA encoder position in step relative to position 0
         int32_t DEStepRel; // Current DE encoder position in step relative to position 0
@@ -89,6 +109,9 @@ class SimpleScope : public INDI::Telescope
 
         int32_t targetRAStep; // Target RA position in step
         int32_t targetDEStep; // Target RA position in step
+
+        double RAParkPos {0}; // RA hours
+        double DEParkPos {90}; // DE degrees
 
 
         // Debug channel to write mount logs to

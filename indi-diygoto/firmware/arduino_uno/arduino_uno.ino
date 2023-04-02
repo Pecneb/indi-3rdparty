@@ -24,13 +24,16 @@
 #define AXIS_RA 0
 #define AXIS_DEC 1
 
+#define GOTO_RATE 500
+
 enum Command {
   GOTO = 'A',         // command structure "A:RA:DE:SLEWSPEED"
   TRACK = 'B',
   PARK = 'C',
   SETPARKPOS = 'D',
   GETAXISSTATUS = 'E',
-  HANDSHAKE = 'F'
+  HANDSHAKE = 'F',
+  ERROR = 'X'
 };
 
 enum MountStatus {
@@ -50,7 +53,7 @@ bool cmdComplete = false;
 char res[DRIVER_LEN] {0};
 
 void sendError() {
-  res[0] = 2;
+  res[0] = 'X';
   res[1] = '\0';  
   Serial.write(res);
   res[0] = '\0';
@@ -62,22 +65,19 @@ void parseCommand(char* cmd, char* res) {
     long TargetRASteps;
     long TargetDESteps;
     float SlewSpeed;
-    sscanf(cmd, "A:%l:%l:%f", TargetRASteps, TargetDESteps, SlewSpeed);
-    Axis_RA.setMaxSpeed(SlewSpeed);
-    Axis_DE.setMaxSpeed(SlewSpeed);
+    sscanf(cmd, "A:%l:%l", TargetRASteps, TargetDESteps);
+    Axis_RA.setMaxSpeed(GOTO_RATE);
+    Axis_DE.setMaxSpeed(GOTO_RATE);
     Axis_RA.setAcceleration(5);
     Axis_DE.setAcceleration(5);
     Axis_RA.moveTo(TargetRASteps);
     Axis_DE.moveTo(TargetDESteps);
-    res[0] = 1;
+    res[0] = 'A';
     res[1] = '\0';
-    Serial.write(res);
-    res[0] = '\0';
   }
   if (strstr(cmd, char(HANDSHAKE)) != NULL) {
     res[0] = 1;
     res[1] = '\0';
-    Serial.write(res);
   }
 }
 

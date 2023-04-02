@@ -23,6 +23,8 @@
 
 #include "libindi/indicom.h"
 
+#include <cstdint>
+#include <cstdio>
 #include <libindi/indilogger.h>
 #include <termios.h>
 #include <cmath>
@@ -65,7 +67,7 @@ bool SimpleScope::Handshake()
 {
     if (isSimulation()) return true;
 
-    char cmd[DRIVER_LEN] = char(HANDSHAKE);
+    char cmd[DRIVER_LEN] {HANDSHAKE};
     char res[DRIVER_LEN] { 0 };
     sendCommand(cmd, res, DRIVER_LEN, DRIVER_LEN);
 
@@ -83,12 +85,56 @@ const char *SimpleScope::getDefaultName()
     return "ArduinoGOTO";
 }
 
-int32_t RAToSteps(double ra) {
+int32_t SimpleScope::RAToSteps(double ra) {
     int32_t result = 0;
+    if (ra > 12.0) {
+        result = CW * STEPS_PER_RA_REV * (ra/24);
+    } else {
+        result = CCW * (STEPS_PER_RA_REV - (STEPS_PER_RA_REV * (ra/24)));
+    }
+    return result;
 }
 
-void RADEToSteps(double ra, double de, int32_t rastep, int32_t destep) {
+int32_t SimpleScope::DEToSteps(double de) {
+    int32_t result = 0;
+    if (targetPierSide == PIER_WEST){
+        result = CCW * (STEPS_PER_DE_REV * ((90.0 - de)/360.0));
+    } else if (targetPierSide == PIER_EAST) {
+        result = CW * (STEPS_PER_DE_REV * ((90.0 - de)/360.0));
+    }
+    return result;
+}
 
+void SimpleScope::RADEToSteps(double ra, double de, int32_t& rastep, int32_t& destep) {
+    rastep = RAToSteps(ra);
+    destep = DEToSteps(de);
+}
+
+double SimpleScope::StepsToRA(int32_t rastep) {
+    double result = 0;
+    if (rastep > 0) {
+        result = (double)(rastep / STEPS_PER_RA_REV) * 24;
+    } else {
+        result = (double)((STEPS_PER_RA_REV + rastep) / STEPS_PER_RA_REV) * 24;
+    }
+    return result;
+} 
+
+double SimpleScope::StepsToDE(int32_t destep) {
+    double result = 0;
+    int32_t absDeStep = std::abs(destep);
+    double tmpDeg = ((double)(destep / STEPS_PER_DE_REV) * 360);
+    if (tmpDeg <= 90) {
+        result = 90 - tmpDeg;
+    } else {
+        result = (tmpDeg - 90) * -1;
+    }
+    return result;
+}
+
+void SimpleScope::StepsToRADE(int32_t rastep, int32_t destep, double& ra, double& dec) {
+    ra = StepsToRA(rastep);
+    dec = StepsToDE(destep);
 }
 
 /**************************************************************************************
@@ -98,6 +144,23 @@ bool SimpleScope::Goto(double ra, double dec)
 {
     targetRA  = ra;
     targetDEC = dec;
+
+    // Set target pierside
+    if (ra > 12.0) {
+        targetPierSide = PIER_WEST;
+    } else {
+        targetPierSide = PIER_EAST;
+    }
+
+    RADEToSteps(targetRA, targetDEC, targetRAStep, targetDEStep);
+
+    char cmd[DRIVER_LEN] {0};
+    char res[DRIVER_LEN] {0};
+
+    sprintf(cmd, "%c:%d:%d", GOTO, targetRAStep, targetDEStep);
+    sendCommand(cmd, res, DRIVER_LEN, DRIVER_LEN);
+
+    if (res[0] != GOTO) return false;
 
     LOGF_DEBUG("Slewing to RA: %g - DEC: %g", targetRA, targetDEC);
 
@@ -125,6 +188,53 @@ bool SimpleScope::Abort()
     return true;
 }
 
+int32_t SimpleScope::GetRAEncoder() {
+    char cmd[DRIVER_LEN] {0};
+    char res[DRIVER_LEN] {0};
+    int32_t RaSteps = 0;
+    char resCode;
+
+    sprintf(cmd, "%c:%d", GETAXISSTATUS, RA_AXIS);
+    sendCommand(cmd, res, DRIVER_LEN, DRIVER_LEN);
+    sscanf(res, "%c:%d", &resCode, &RaSteps);
+
+    return RaSteps; 
+}
+
+int32_t SimpleScope::GetDEEnconder() {
+    char cmd[DRIVER_LEN] {0};
+    char res[DRIVER_LEN] {0};
+    int32_t DeSteps = 0;
+    char resCode;
+
+    sprintf(cmd, "%c:%d", GETAXISSTATUS, RA_AXIS);
+    sendCommand(cmd, res, DRIVER_LEN, DRIVER_LEN);
+    sscanf(res, "%c:%d", &resCode, &DeSteps);
+
+    return DeSteps; 
+}
+
+double SimpleScope::StepsToDEG(int32_t steps, int8_t axis) {
+    double result = 0;
+    switch (axis) {
+        case RA_AXIS:
+            if (steps > 0) {
+                result = (double)(steps / STEPS_PER_RA_REV) * 360;
+            } else {
+                result = (double)((STEPS_PER_RA_REV + steps) / STEPS_PER_RA_REV) * 360;
+            }
+            break;
+        case DE_AXIS:
+            if (steps > 0) {
+                result = (double)(steps / STEPS_PER_DE_REV) * 360;
+            } else {
+                result = (double)((STEPS_PER_DE_REV + steps) / STEPS_PER_DE_REV) * 360;
+            }
+            break;
+    }
+    return result;
+}
+
 /**************************************************************************************
 ** Client is asking us to report telescope status
 ***************************************************************************************/
@@ -150,6 +260,13 @@ bool SimpleScope::ReadScopeStatus()
     dt  = tv.tv_sec - ltv.tv_sec + (tv.tv_usec - ltv.tv_usec) / 1e6;
     ltv = tv;
 
+    // Get encoder status
+    int32_t currentEncoderRA = GetRAEncoder();
+    int32_t currentEncoderDE = GetDEEnconder();
+
+    // Convert encoder steps to RA/DEC double
+    StepsToRADE(currentEncoderRA, currentEncoderDE, currentRA, currentDEC);
+
     // Calculate how much we moved since last time
     da_ra  = SLEW_RATE * dt;
     da_dec = SLEW_RATE * dt;
@@ -171,11 +288,11 @@ bool SimpleScope::ReadScopeStatus()
                 nlocked++;
             }
             // Otherwise, increase RA
-            else if (dx > 0)
-                currentRA += da_ra / 15.;
+            //else if (dx > 0)
+            //    currentRA += da_ra / 15.;
             // Otherwise, decrease RA
-            else
-                currentRA -= da_ra / 15.;
+            //else
+            //    currentRA -= da_ra / 15.;
 
             // Calculate diff in DEC
             dy = targetDEC - currentDEC;
@@ -187,15 +304,18 @@ bool SimpleScope::ReadScopeStatus()
                 nlocked++;
             }
             // Otherwise, increase DEC
-            else if (dy > 0)
-                currentDEC += da_dec;
-            // Otherwise, decrease DEC
-            else
-                currentDEC -= da_dec;
+            // else if (dy > 0)
+            //     currentDEC += da_dec;
+            // // Otherwise, decrease DEC
+            // else
+            //     currentDEC -= da_dec;
 
             // Let's check if we recahed position for both RA/DEC
             if (nlocked == 2)
             {
+                lastPierSide = currentPierSide;
+                Telescope::setPierSide(targetPierSide);
+
                 // Let's set state to TRACKING
                 TrackState = SCOPE_TRACKING;
 

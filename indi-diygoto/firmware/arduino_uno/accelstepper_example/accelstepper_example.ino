@@ -32,12 +32,12 @@ void setup() {
   Axis_RA.setMaxSpeed(1000);
   Axis_RA.setAcceleration(5);
   //Axis_RA.moveTo(86164);
-  Axis_RA.moveTo(100);
+  Axis_RA.moveTo(1000);
 
   Axis_DE.setMaxSpeed(1000);
   Axis_DE.setAcceleration(5);
   //Axis_DE.moveTo(86164);
-  Axis_DE.moveTo(100);
+  Axis_DE.moveTo(1000);
 }
 
 void loop() {
@@ -60,16 +60,25 @@ void loop() {
  
     Serial.println();
   }
+
+  /*
+  if (runTime >= 60000) {
+      Axis_RA.disableOutputs();
+
+      Axis_DE.disableOutputs();
+  }*/
  
   if (!track) {
     raRun = Axis_RA.run();
-  } else {
+  } /*else {
     raRun = Axis_RA.runSpeed();
     Axis_RA.move(1);
-  }
+  }*/
   if (!raRun) {
-    Axis_RA.setSpeed(0.905308);
-    track = true;
+    //Axis_RA.setSpeed(20);//0.905308);
+    //track = true;
+    //Axis_RA.moveTo(-Axis_RA.currentPosition());
+    Axis_RA.disableOutputs();
   }
   if (!Axis_DE.run()) {
     Axis_DE.disableOutputs();
@@ -81,10 +90,6 @@ void loop() {
   if (!Axis_DE.run()) {
     Axis_DE.moveTo(-Axis_DE.currentPosition());
   }
- 
-  if (runTime >= 60000) {
-      Axis_RA.disableOutputs();
-
-      Axis_DE.disableOutputs();
-  }*/
+  */
+  
 }
