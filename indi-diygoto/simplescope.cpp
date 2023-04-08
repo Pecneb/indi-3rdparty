@@ -21,15 +21,28 @@
 
 #include "simplescope.h"
 
+#include "indiapi.h"
+#include "indibasetypes.h"
+#include "indidevapi.h"
 #include "libindi/indicom.h"
 
 #include <cstdint>
 #include <cstdio>
+#include <libindi/indiapi.h>
+#include <libindi/indibasetypes.h>
+#include <libindi/indidevapi.h>
 #include <libindi/indilogger.h>
+#include <libnova/julian_day.h>
+#include <libnova/sidereal_time.h>
 #include <termios.h>
 #include <cmath>
 #include <memory>
 #include <string.h>
+#include "mach_gettime.h"
+
+/* Preset Slew Speeds */
+#define SLEWMODES 11
+double slewspeeds[SLEWMODES - 1] = { 1.0, 2.0, 4.0, 8.0, 32.0, 64.0, 128.0, 600.0, 700.0, 800.0 };
 
 static std::unique_ptr<SimpleScope> simpleScope(new SimpleScope());
 
@@ -55,7 +68,11 @@ bool SimpleScope::initProperties()
     setSimulation(false);
 
     // Set telescope capabilities. 0 is for the the number of slew rates that we support. We have none for this simple driver.
-    SetTelescopeCapability(TELESCOPE_CAN_GOTO | TELESCOPE_CAN_ABORT, 0);
+    SetTelescopeCapability( TELESCOPE_CAN_GOTO          | 
+                            TELESCOPE_CAN_ABORT         | 
+                            TELESCOPE_HAS_PIER_SIDE     | 
+                            TELESCOPE_HAS_TRACK_MODE    | 
+                            TELESCOPE_HAS_TRACK_RATE, SLEWMODES);
 
     return true;
 }
@@ -69,10 +86,9 @@ bool SimpleScope::Handshake()
 
     char cmd[DRIVER_LEN] {HANDSHAKE};
     char res[DRIVER_LEN] { 0 };
-    sendCommand(cmd, res, DRIVER_LEN, DRIVER_LEN);
+    sendCommand(cmd, res, 0, 0);
 
-    char expect[DRIVER_LEN] { 1 };
-    expect[1] = '\0';
+    char expect[DRIVER_LEN] {'F'};
     if (strcmp(res, expect)) return true;
     return false;
 }
@@ -85,56 +101,98 @@ const char *SimpleScope::getDefaultName()
     return "ArduinoGOTO";
 }
 
-int32_t SimpleScope::RAToSteps(double ra) {
-    int32_t result = 0;
-    if (ra > 12.0) {
-        result = CW * STEPS_PER_RA_REV * (ra/24);
-    } else {
-        result = CCW * (STEPS_PER_RA_REV - (STEPS_PER_RA_REV * (ra/24)));
-    }
-    return result;
+double SimpleScope::getLongitude() {
+    return (IUFindNumber(&LocationNP, "LONG")->value);
 }
 
-int32_t SimpleScope::DEToSteps(double de) {
-    int32_t result = 0;
-    if (targetPierSide == PIER_WEST){
-        result = CCW * (STEPS_PER_DE_REV * ((90.0 - de)/360.0));
-    } else if (targetPierSide == PIER_EAST) {
-        result = CW * (STEPS_PER_DE_REV * ((90.0 - de)/360.0));
-    }
-    return result;
+double SimpleScope::getLatitude() {
+    return (IUFindNumber(&LocationNP, "LAT")->value);
 }
 
-void SimpleScope::RADEToSteps(double ra, double de, int32_t& rastep, int32_t& destep) {
-    rastep = RAToSteps(ra);
-    destep = DEToSteps(de);
+double SimpleScope::getJulianDate() {
+    return ln_get_julian_from_sys();
 }
 
-double SimpleScope::StepsToRA(int32_t rastep) {
-    double result = 0;
-    if (rastep > 0) {
-        result = (double)(rastep / STEPS_PER_RA_REV) * 24;
-    } else {
-        result = (double)((STEPS_PER_RA_REV + rastep) / STEPS_PER_RA_REV) * 24;
-    }
-    return result;
+double SimpleScope::getLst(double jd, double lng) {
+    double lst;
+    lst = ln_get_apparent_sidereal_time(jd);
+    lst += (lng / 15.0);
+    lst = range24(lst);
+    return lst;
 } 
 
-double SimpleScope::StepsToDE(int32_t destep) {
-    double result = 0;
-    int32_t absDeStep = std::abs(destep);
-    double tmpDeg = ((double)(destep / STEPS_PER_DE_REV) * 360);
-    if (tmpDeg <= 90) {
-        result = 90 - tmpDeg;
+double SimpleScope::StepsToHours(int32_t steps, uint32_t totalstep) {
+    double result = 0.0;
+    if (steps > 0) {
+        result = static_cast<double>(steps / totalstep) * 24.0;
     } else {
-        result = (tmpDeg - 90) * -1;
+        result = static_cast<double>(steps / totalstep) * 24.0;
+        result = 24.0 + result;
     }
     return result;
 }
 
-void SimpleScope::StepsToRADE(int32_t rastep, int32_t destep, double& ra, double& dec) {
-    ra = StepsToRA(rastep);
-    dec = StepsToDE(destep);
+double SimpleScope::StepsToDegree(int32_t steps, uint32_t totalstep) {
+    double result = 0;
+    result = range360((double)(steps / totalstep));
+    return result;
+}
+
+void SimpleScope::StepsToRADE(int32_t rastep, int32_t destep, double lst, double* ra, double* dec, double *ha, 
+    TelescopePierSide* pierSide) {
+    double RACurrent = 0.0, DECurrent = 0.0, HACurrent = 0.0;
+    TelescopePierSide p;
+    HACurrent = StepsToHours(rastep, STEPS_PER_RA_REV); 
+    RACurrent = HACurrent + lst;
+    DECurrent = StepsToDegree(destep, STEPS_PER_DE_REV);
+    if ((DECurrent > 90.0) && (DECurrent <= 270.0)) {
+        RACurrent = RACurrent - 12.0;
+        p = PIER_EAST;
+    } else {
+        p = PIER_WEST;
+    }
+    HACurrent = rangeHA(HACurrent);
+    RACurrent = range24(RACurrent);
+    DECurrent = rangeDec(DECurrent);
+    *ra       = RACurrent;
+    *dec       = DECurrent;
+    if (ha)
+        *ha = HACurrent;
+    if (pierSide)
+        *pierSide = p;
+}
+
+double SimpleScope::StepsFromHour(double hour, uint32_t totalstep) {
+    if (hour < 12.0) {
+        return round(CCW * (hour / 24.0) * totalstep);
+    } else {
+        return round(CW  * (hour / 24.0) * totalstep);
+    }
+}
+
+double SimpleScope::StepsFromRA(double ratarget, TelescopePierSide p, double lst, uint32_t totalstep) {
+    double ha = 0.0;
+    ha = ratarget - lst;
+
+    if (p == PIER_EAST)
+        ha = ha + 12.0;
+
+    ha = range24(ha);
+    return StepsFromHour(ha, STEPS_PER_RA_REV);
+}
+
+double SimpleScope::StepsFromDegree(double degree, uint32_t totalstep) {
+    double target = 0;
+    target = range360(degree); 
+    if (target > 270.0)
+        target -= 360.0;
+    return round((target / 360.0) * totalstep);
+}
+
+double SimpleScope::StepsFromDec(double detarget, TelescopePierSide p, uint32_t totalstep) {
+    if (p == PIER_EAST)
+        detarget = 180.0 - detarget;
+    return StepsFromDegree(detarget, totalstep);
 }
 
 /**************************************************************************************
@@ -142,39 +200,51 @@ void SimpleScope::StepsToRADE(int32_t rastep, int32_t destep, double& ra, double
 ***************************************************************************************/
 bool SimpleScope::Goto(double ra, double dec)
 {
-    targetRA  = ra;
-    targetDEC = dec;
+    double juliandate, lng, lst;
 
-    // Set target pierside
-    if (ra > 12.0) {
+    if ((TrackState == SCOPE_SLEWING) || (TrackState == SCOPE_PARKING) || (TrackState == SCOPE_PARKED)) {
+        LOG_WARN("Can not perform goto while goto/park in progress, or scope parked.");
+        return false;
+    }
+
+    juliandate = getJulianDate();
+    lng = getLongitude();
+    lst = getLst(juliandate, lng);
+
+    targetRA = ra;
+    targetDEC = dec;
+    targetHA = lst - ra;
+
+    if (targetHA >= 0) {
         targetPierSide = PIER_WEST;
     } else {
         targetPierSide = PIER_EAST;
     }
 
-    RADEToSteps(targetRA, targetDEC, targetRAStep, targetDEStep);
+    targetRAEncoder = StepsFromRA(targetRA, targetPierSide, lst, STEPS_PER_RA_REV);
+    targetDEEncoder = StepsFromDec(targetDEC, targetPierSide, STEPS_PER_DE_REV);
+
+    char RAStr[64] = {0}, DecStr[64] = {0};
 
     char cmd[DRIVER_LEN] {0};
     char res[DRIVER_LEN] {0};
 
-    sprintf(cmd, "%c:%d:%d", GOTO, targetRAStep, targetDEStep);
+    sprintf(cmd, "%c %d %d", GOTO, targetRAEncoder, targetDEEncoder);
     sendCommand(cmd, res, DRIVER_LEN, DRIVER_LEN);
 
     if (res[0] != GOTO) return false;
 
-    LOGF_DEBUG("Slewing to RA: %g - DEC: %g", targetRA, targetDEC);
-
-    char RAStr[64] = {0}, DecStr[64] = {0};
+    LOGF_INFO("Starting Goto RA=%g DE=%g (current RA=%g DE=%g)", ra, dec, currentRA, currentDEC);
 
     // Parse the RA/DEC into strings
     fs_sexa(RAStr, targetRA, 2, 3600);
     fs_sexa(DecStr, targetDEC, 2, 3600);
 
-    // Mark state as slewing
-    TrackState = SCOPE_SLEWING;
-
     // Inform client we are slewing to a new position
     LOGF_INFO("Slewing to RA: %s - DEC: %s", RAStr, DecStr);
+
+    // Mark state as slewing
+    TrackState = SCOPE_SLEWING;
 
     // Success!
     return true;
@@ -188,51 +258,136 @@ bool SimpleScope::Abort()
     return true;
 }
 
-int32_t SimpleScope::GetRAEncoder() {
+INDI_EQ_AXIS SimpleScope::GetRAEncoder(int32_t* steps) {
     char cmd[DRIVER_LEN] {0};
     char res[DRIVER_LEN] {0};
     int32_t RaSteps = 0;
+    int axis_num;
     char resCode;
 
-    sprintf(cmd, "%c:%d", GETAXISSTATUS, RA_AXIS);
-    sendCommand(cmd, res, DRIVER_LEN, DRIVER_LEN);
-    sscanf(res, "%c:%d", &resCode, &RaSteps);
-
-    return RaSteps; 
+    sprintf(cmd, "%c %d\n", GETAXISSTATUS, AXIS_RA);
+    sendCommand(cmd, res, 0, 0);
+    sscanf(res, "%c %d %d", &resCode, &RaSteps, &axis_num);
+    if (axis_num == AXIS_RA) *steps = RaSteps;
+    return static_cast<INDI_EQ_AXIS>(axis_num);
 }
 
-int32_t SimpleScope::GetDEEnconder() {
+INDI_EQ_AXIS SimpleScope::GetDEEncoder(int32_t* steps) {
     char cmd[DRIVER_LEN] {0};
     char res[DRIVER_LEN] {0};
     int32_t DeSteps = 0;
+    int axis_num;
     char resCode;
 
-    sprintf(cmd, "%c:%d", GETAXISSTATUS, RA_AXIS);
-    sendCommand(cmd, res, DRIVER_LEN, DRIVER_LEN);
-    sscanf(res, "%c:%d", &resCode, &DeSteps);
-
-    return DeSteps; 
+    sprintf(cmd, "%c %d\n", GETAXISSTATUS, AXIS_DE);
+    sendCommand(cmd, res, 0, 0);
+    sscanf(res, "%c %d %d", &resCode, &DeSteps, &axis_num);
+    if (axis_num == AXIS_RA) *steps = DeSteps; 
+    return static_cast<INDI_EQ_AXIS>(axis_num);
 }
 
-double SimpleScope::StepsToDEG(int32_t steps, int8_t axis) {
-    double result = 0;
-    switch (axis) {
-        case RA_AXIS:
-            if (steps > 0) {
-                result = (double)(steps / STEPS_PER_RA_REV) * 360;
-            } else {
-                result = (double)((STEPS_PER_RA_REV + steps) / STEPS_PER_RA_REV) * 360;
-            }
-            break;
-        case DE_AXIS:
-            if (steps > 0) {
-                result = (double)(steps / STEPS_PER_DE_REV) * 360;
-            } else {
-                result = (double)((STEPS_PER_DE_REV + steps) / STEPS_PER_DE_REV) * 360;
-            }
-            break;
+bool SimpleScope::SetRaRate(double raRate) {
+    char cmd[DRIVER_LEN] {0};
+    char res[DRIVER_LEN] {0};
+
+    double stepRate = StepsFromDegree(raRate, STEPS_PER_RA_REV);
+
+    sprintf(cmd, "%c %f\n", SETTRACKRATE, stepRate);
+    sendCommand(cmd, res, 0, 0);
+
+    char expectedRes[DRIVER_LEN] {SETTRACKRATE};
+    if (strcmp(res, expectedRes) == 0) return true;
+    LOGF_INFO("Setting Tracking Rate - RA=%.6f arcsec/s", raRate);
+    return false;
+}
+
+bool SimpleScope::SetDeRate(double deRate) {
+    char cmd[DRIVER_LEN] {0};
+    char res[DRIVER_LEN] {0};
+
+    double stepRate = StepsFromDegree(deRate, STEPS_PER_DE_REV);
+
+    sprintf(cmd, "%c %f\n", SETTRACKRATE, stepRate);
+    sendCommand(cmd, res, 0, 0);
+
+    char expectedRes[DRIVER_LEN] {SETTRACKRATE};
+    if (strcmp(res, expectedRes) == 0) return true;
+    LOGF_INFO("Setting Tracking Rate - DE=%.6f arcsec/s", deRate);
+    return false;
+}
+
+bool SimpleScope::SetTrackRate(double raRate, double deRate) {
+    if (!SetRaRate(raRate / STELLAR_SPEED)) return false;
+    if (!SetDeRate(deRate / STELLAR_SPEED)) return false; 
+    LOGF_INFO("Setting Custom Tracking Rates - RA=%.6f  DE=%.6f arcsec/s", raRate, deRate);
+    return true;
+}
+
+bool SimpleScope::SetTrackMode(uint8_t mode) {
+    double rate = 0.0;
+    ISwitch *sw;
+    sw = IUFindOnSwitch(&TrackModeSP);
+    if (!sw)
+        return 0.0;
+    if (!strcmp(sw->name, "TRACK_SIDEREAL")) {
+        rate = TRACKRATE_SIDEREAL;
+    } else if (!strcmp(sw->name, "TRACK_LUNAR")) {
+        rate = TRACKRATE_LUNAR;
+    } else if (!strcmp(sw->name, "TRACK_SOLAR")) {
+        rate = TRACKRATE_SOLAR;
+    } else if (!strcmp(sw->name, "TRACK_CUSTOM")) {
+        rate = IUFindNumber(&TrackRateNP, "TRACK_RATE_RA")->value;
+    } 
+    
+    char cmd[DRIVER_LEN] {0};
+    char res[DRIVER_LEN] {0};
+
+    sprintf(cmd, "%c %f\n", SETTRACKRATE, rate);
+
+    char expectedRes[DRIVER_LEN] {SETTRACKRATE};
+    sendCommand(cmd, res, 0, 0);
+
+    LOGF_INFO("Setting Track Mode to '%s'", sw->label);
+
+    if (!strcmp(res, expectedRes))
+        return true;
+    return false;
+}
+
+bool SimpleScope::SetTrackEnabled(bool enabled) {
+    if (enabled) {
+        LOGF_INFO("Start Tracking (%s).", IUFindOnSwitch(&TrackModeSP)->label);
+        TrackState = SCOPE_TRACKING;
+        RememberTrackState = TrackState;
+        return StartRATracking();
+    } else {
+        LOGF_INFO("Stopping Tracking (%s).", IUFindOnSwitch(&TrackModeSP)->label);
+        TrackState = SCOPE_IDLE;
+        RememberTrackState = TrackState;
+        return StopRATracking();
     }
-    return result;
+}
+
+bool SimpleScope::StartRATracking() {
+    char cmd[DRIVER_LEN] {0};
+    char res[DRIVER_LEN] {0};
+    char expRes[DRIVER_LEN] {TRACK};
+    sprintf(cmd, "%c %d\n", TRACK, 1);
+
+    if (!strcmp(res, expRes))
+        return true;
+    return false;
+}
+
+bool SimpleScope::StopRATracking() {
+    char cmd[DRIVER_LEN] {0};
+    char res[DRIVER_LEN] {0};
+    char expRes[DRIVER_LEN] {TRACK};
+    sprintf(cmd, "%c %d\n", TRACK, 0);
+
+    if (!strcmp(res, expRes))
+        return true;
+    return false;
 }
 
 /**************************************************************************************
@@ -240,6 +395,54 @@ double SimpleScope::StepsToDEG(int32_t steps, int8_t axis) {
 ***************************************************************************************/
 bool SimpleScope::ReadScopeStatus()
 {
+    // Time
+    double juliandate = 0;
+    double lst = 0;
+    char hrlst[12] = {0};
+
+    /*const char *datenames[] = { "LST", "JULIANDATE", "UTC" };
+    double periods[2];
+    const char *periodsnames[] = { "RAPERIOD", "DEPERIOD" };
+    double horizvalues[2];
+    const char *horiznames[2] = { "AZ", "ALT" };
+    double steppervalues[2];
+    const char *steppernames[] = { "RAStepsCurrent", "DEStepsCurrent" };
+    */
+
+    juliandate = getJulianDate();
+    lst        = getLst(juliandate, getLongitude());
+
+    fs_sexa(hrlst, lst, 2, 360000);
+    hrlst[11] = '\0';
+    DEBUGF(DBG_SCOPE, "Compute local time: lst=%2.8f (%s) - julian date=%8.8f", lst, hrlst, juliandate);
+
+    /*
+    TimeLSTNP.update(&lst, (char **)(datenames), 1);
+    TimeLSTNP.setState(IPS_OK);
+    TimeLSTNP.apply();
+
+    JulianNP.update(&juliandate, (char **)(datenames + 1), 1);
+    JulianNP.setState(IPS_OK);
+    JulianNP.apply();
+    */
+
+    TelescopePierSide pierSide;
+    GetRAEncoder(&currentRAEncoder);
+    GetDEEncoder(&currentDEEncoder);
+    DEBUGF(DBG_SCOPE, "Current encoders RA=%ld DE=%ld", static_cast<long>(currentRAEncoder), 
+            static_cast<long>(currentDEEncoder));
+    StepsToRADE(currentRAEncoder, currentDEEncoder, lst, &currentRA, &currentDEC, &currentHA, &pierSide);
+    setPierSide(pierSide);
+
+    char CurrentRAString[64] = {0}, CurrentDEString[64] = {0};
+    fs_sexa(CurrentRAString, currentRA, 2, 3600);
+    fs_sexa(CurrentDEString, currentDEC, 2, 3600);
+
+    LOGF_DEBUG("Scope RA (%s) DE (%s) , PierSide (%s)",
+                       CurrentRAString,
+                       CurrentDEString,
+                       pierSide == PIER_EAST ? "East" : (pierSide == PIER_WEST ? "West" : "Unknown"));
+
     static struct timeval ltv
     {
         0, 0
@@ -259,13 +462,6 @@ bool SimpleScope::ReadScopeStatus()
 
     dt  = tv.tv_sec - ltv.tv_sec + (tv.tv_usec - ltv.tv_usec) / 1e6;
     ltv = tv;
-
-    // Get encoder status
-    int32_t currentEncoderRA = GetRAEncoder();
-    int32_t currentEncoderDE = GetDEEnconder();
-
-    // Convert encoder steps to RA/DEC double
-    StepsToRADE(currentEncoderRA, currentEncoderDE, currentRA, currentDEC);
 
     // Calculate how much we moved since last time
     da_ra  = SLEW_RATE * dt;
@@ -314,12 +510,21 @@ bool SimpleScope::ReadScopeStatus()
             if (nlocked == 2)
             {
                 lastPierSide = currentPierSide;
-                Telescope::setPierSide(targetPierSide);
+                setPierSide(targetPierSide);
 
-                // Let's set state to TRACKING
-                TrackState = SCOPE_TRACKING;
+                if (RememberTrackState == SCOPE_TRACKING) {
+                    ISwitch *sw = IUFindOnSwitch(&TrackModeSP);
+                    char *name = sw->name;
+                    StartRATracking();
+                    // Let's set state to TRACKING
+                    TrackState = SCOPE_TRACKING;
 
-                LOG_INFO("Telescope slew is complete. Tracking...");
+                    LOGF_INFO("Telescope slew is complete. Tracking %s...", name);
+                } else {
+                    TrackState = SCOPE_IDLE;
+                    RememberTrackState = TrackState;
+                    LOG_INFO("Telescope slew is complete. Stopping...");
+                }
             }
             break;
 
@@ -350,12 +555,12 @@ bool SimpleScope::sendCommand(const char * cmd, char * res, int cmd_len, int res
     {
         char hex_cmd[DRIVER_LEN * 3] = {0};
         hexDump(hex_cmd, cmd, cmd_len);
-        LOGF_DEBUG("CMD <%s>", hex_cmd);
+        //LOGF_DEBUG("CMD <%s>", hex_cmd);
         rc = tty_write(PortFD, cmd, cmd_len, &nbytes_written);
     }
     else
     {
-        LOGF_DEBUG("CMD <%s>", cmd);
+        //LOGF_DEBUG("CMD <%s>", cmd);
         rc = tty_write_string(PortFD, cmd, &nbytes_written);
     }
 
@@ -388,6 +593,7 @@ bool SimpleScope::sendCommand(const char * cmd, char * res, int cmd_len, int res
         char hex_res[DRIVER_LEN * 3] = {0};
         hexDump(hex_res, res, res_len);
         LOGF_DEBUG("RES <%s>", hex_res);
+        LOGF_DEBUG("RES <%s>", res);
     }
     else
     {

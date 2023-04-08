@@ -10,6 +10,7 @@ set (GENERIC_VERSION_MINOR 1)
 
 #find_package(CFITSIO REQUIRED)
 find_package(INDI REQUIRED)
+find_package(Nova REQUIRED)
 #find_package(ZLIB REQUIRED)
 
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/config.h.cmake ${CMAKE_CURRENT_BINARY_DIR}/config.h )
@@ -33,6 +34,7 @@ add_executable(indi_diygoto ${diygoto_SRCS})
 #target_link_libraries(indi_diygoto ${INDI_LIBRARIES} ${ZLIB_LIBRARY})
 target_link_libraries(indi_diygoto ${INDI_LIBRARIES})
 target_link_libraries(indi_diygoto indidriver)
+target_link_libraries(indi_diygoto nova)
 
 install(TARGETS indi_diygoto RUNTIME DESTINATION bin)
 

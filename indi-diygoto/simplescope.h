@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "indibasetypes.h"
 #include "libindi/inditelescope.h"
 
 #define SIDEREAL_DAY 86164.09053083288  // seconds 
@@ -36,8 +37,7 @@
 #define FINE_SLEW_RATE 0.1 // slew rate, degrees/s
 #define TRACK_RATE 0.004178074 // slew rate, degrees/s
 
-#define RA_AXIS 0
-#define DE_AXIS 1
+#define DRIVER_LEN 64
 
 class SimpleScope : public INDI::Telescope
 {
@@ -56,27 +56,39 @@ class SimpleScope : public INDI::Telescope
         bool Abort() override;
 
         // Tracking
-        bool SetRaTrackRate(double raRate);
-        bool SetDeTrackRate(double deRate);
-        bool GetRaTrackRate();
-        bool GetDeTrackRate();
+        bool SetRaRate(double raRate);
+        bool SetDeRate(double deRate);
+        double GetRaTrackRate();
+        double GetDeTrackRate();
+        bool StartRATracking();
+        bool StopRATracking();
+        bool StartDETracking();
+        bool StopDETracking();
         bool SetTrackMode(uint8_t mode) override;
         bool SetTrackRate(double raRate, double deRate) override; 
         bool SetTrackEnabled(bool enabled) override;
 
+        double getLongitude();
+        double getLatitude();
+        double getJulianDate();
+        double getLst(double jd, double lng);
+
 
         // Axis positions in steps
-        int32_t GetRAEncoder();
-        int32_t GetDEEnconder();
+        INDI_EQ_AXIS GetRAEncoder(int32_t*);
+        INDI_EQ_AXIS GetDEEncoder(int32_t*);
 
         // Conversions between steps and RA/DE
-        void StepsToRADE(int32_t rastep, int32_t destep, double& ra, double& dec);
+        void StepsToRADE(int32_t rastep, int32_t destep, double lst, double* ra, double* dec, double* ha, TelescopePierSide* pierSide);
+        double StepsToHours(int32_t steps, uint32_t totalstep);
         double StepsToRA(int32_t rastep);
         double StepsToDE(int32_t destep);
         void RADEToSteps(double ra, double de, int32_t& rastep, int32_t& destep);
-        int32_t RAToSteps(double ra);
-        int32_t DEToSteps(double de);
-        double StepsToDEG(int32_t steps, int8_t axis);
+        double StepsFromRA(double ratarget, TelescopePierSide p, double lst, uint32_t totalstep);
+        double StepsFromHour(double hours, uint32_t totalstep);
+        double StepsFromDec(double detarget, TelescopePierSide p, uint32_t totalstep);
+        double StepsFromDegree(double degree, uint32_t totalstep);
+        double StepsToDegree(int32_t steps, uint32_t totalstep);
 
     private:
         enum Command {
@@ -86,33 +98,27 @@ class SimpleScope : public INDI::Telescope
             SETPARKPOS = 'D',
             GETAXISSTATUS = 'E',
             HANDSHAKE = 'F',
+            SETTRACKRATE = 'G',
             ERROR = 'X'
         };
 
+        double currentHA {0};
         double currentRA {0};
-        double currentDEC {90};
+        double currentDEC {0};
+        double targetHA;
         double targetRA;
         double targetDEC;
         TelescopePierSide targetPierSide {PIER_UNKNOWN};
-
-        int32_t RAStepRel; // Current RA encoder position in step relative to position 0
-        int32_t DEStepRel; // Current DE encoder position in step relative to position 0
-        int32_t RAStepAbs; // Current RA encoder position in step
-        int32_t DEStepAbs; // Current DE encoder position in step
-        int32_t RAStepInit; // Initial RA position in step
-        int32_t DEStepInit; // Initial DE position in step
-        int32_t RAStepHome; // Home RA position in step
-        int32_t DEStepHome; // Home DE position in step
+        int32_t currentRAEncoder;
+        int32_t currentDEEncoder;
+        int32_t targetRAEncoder;
+        int32_t targetDEEncoder;
 
         int32_t lastRAStep;
         int32_t lastDEStep;
 
-        int32_t targetRAStep; // Target RA position in step
-        int32_t targetDEStep; // Target RA position in step
-
-        double RAParkPos {0}; // RA hours
-        double DEParkPos {90}; // DE degrees
-
+        int32_t RAParkEncoder {0};
+        int32_t DEParkEncoder {0};
 
         // Debug channel to write mount logs to
         // Default INDI::Logger debugging/logging channel are Message, Warn, Error, and Debug
@@ -125,9 +131,6 @@ class SimpleScope : public INDI::Telescope
         void hexDump(char*, const char*, int);
 
         // Serial communication helper properties
-        int DRIVER_LEN = 64;
-        int DRIVER_TIMEOUT = 3;
+        int DRIVER_TIMEOUT = 10;
         char DRIVER_STOP_CHAR = '\0';
-        char DRIVER_OK = 1;
-        char DRIVER_ERROR = 2;
 };
