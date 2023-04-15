@@ -98,6 +98,14 @@ bool SimpleScope::initProperties()
     // to attempt to perform a physical connection to the serial port.
     setSimulation(false);
 
+    addAuxControls();
+
+    serialConnection = new Connection::Serial(this);
+    serialConnection->registerHandshake([&]() { return Handshake(); })
+    serialConnection->setDefaultBaudRate(Connection::Serial::B_9600);
+    serialConnection->setDefaultPort("/dev/ttyACM0");
+    registerConnection(serialConnection);
+
     return true;
 }
 
@@ -356,6 +364,66 @@ INDI_EQ_AXIS SimpleScope::GetDEEncoder(int32_t* steps) {
     return static_cast<INDI_EQ_AXIS>(axis_num);
 }
 
+double SimpleScope::GetRATrackRate()
+{
+    double rate = 0.0;
+    ISwitch *sw;
+    sw = IUFindOnSwitch(&TrackModeSP);
+    if (!sw)
+        return 0.0;
+    if (!strcmp(sw->name, "TRACK_SIDEREAL"))
+    {
+        rate = TRACKRATE_SIDEREAL;
+    }
+    else if (!strcmp(sw->name, "TRACK_LUNAR"))
+    {
+        rate = TRACKRATE_LUNAR;
+    }
+    else if (!strcmp(sw->name, "TRACK_SOLAR"))
+    {
+        rate = TRACKRATE_SOLAR;
+    }
+    else if (!strcmp(sw->name, "TRACK_CUSTOM"))
+    {
+        rate = IUFindNumber(&TrackRateNP, "TRACK_RATE_RA")->value;
+    }
+    else
+        return 0.0;
+    if (RAInverted)
+        rate = -rate;
+    return rate;
+}
+
+double SimpleScope::GetDETrackRate()
+{
+    double rate = 0.0;
+    ISwitch *sw;
+    sw = IUFindOnSwitch(&TrackModeSP);
+    if (!sw)
+        return 0.0;
+    if (!strcmp(sw->name, "TRACK_SIDEREAL"))
+    {
+        rate = 0.0;
+    }
+    else if (!strcmp(sw->name, "TRACK_LUNAR"))
+    {
+        rate = 0.0;
+    }
+    else if (!strcmp(sw->name, "TRACK_SOLAR"))
+    {
+        rate = 0.0;
+    }
+    else if (!strcmp(sw->name, "TRACK_CUSTOM"))
+    {
+        rate = IUFindNumber(&TrackRateNP, "TRACK_RATE_DE")->value;
+    }
+    else
+        return 0.0;
+    if (DEInverted)
+        rate = -rate;
+    return rate;
+}
+
 bool SimpleScope::SetRaRate(double raRate) {
     char cmd[DRIVER_LEN] {0};
     char res[DRIVER_LEN] {0};
@@ -398,22 +466,9 @@ bool SimpleScope::SetTrackRate(double raRate, double deRate) {
 }
 
 bool SimpleScope::SetTrackMode(uint8_t mode) {
-    double RArate = 0.0;
-    double DErate = 0.0;
-    ISwitch *sw;
-    sw = IUFindOnSwitch(&TrackModeSP);
-    if (!sw)
-        return 0.0;
-    if (!strcmp(sw->name, "TRACK_SIDEREAL")) {
-        RArate = TRACKRATE_SIDEREAL;
-    } else if (!strcmp(sw->name, "TRACK_LUNAR")) {
-        RArate = TRACKRATE_LUNAR;
-    } else if (!strcmp(sw->name, "TRACK_SOLAR")) {
-        RArate = TRACKRATE_SOLAR;
-    } else if (!strcmp(sw->name, "TRACK_CUSTOM")) {
-        RArate = IUFindNumber(&TrackRateNP, "TRACK_RATE_RA")->value;
-        DErate = IUFindNumber(&TrackRateNP, "TRACK_RATE_DE")->value;
-    } 
+    double RArate = GetRATrackRate();
+    double DErate = GetDETrackRate();
+
     RArate = (CW * RArate / 3600.0) / STEPSIZE_RA;
     DErate = (CW * DErate / 3600.0) / STEPSIZE_DE;
     

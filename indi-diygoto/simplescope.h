@@ -123,13 +123,13 @@ class SimpleScope : public INDI::Telescope
          * 
          * @return double 
          */
-        double GetRaTrackRate();
+        double GetRATrackRate();
         /**
          * @brief Get the De Track Rate
          * 
          * @return double 
          */
-        double GetDeTrackRate();
+        double GetDETrackRate();
         /**
          * @brief Start tracking
          * 
@@ -311,6 +311,9 @@ class SimpleScope : public INDI::Telescope
             SETIDLE,        // "I"
             ERROR = -1
         };
+
+        double RAInverted, DEInverted;
+
         double currentHA;
         double currentRA;
         double currentDEC;
