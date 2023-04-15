@@ -54,16 +54,16 @@ class SimpleScope : public INDI::Telescope
         bool ReadScopeStatus() override;
         bool Goto(double, double) override;
         bool Abort() override;
+        bool Park() override;
+        bool UnPark() override;
 
         // Tracking
         bool SetRaRate(double raRate);
         bool SetDeRate(double deRate);
         double GetRaTrackRate();
         double GetDeTrackRate();
-        bool StartRATracking();
-        bool StopRATracking();
-        bool StartDETracking();
-        bool StopDETracking();
+        bool StartTracking();
+        bool StopTracking();
         bool SetTrackMode(uint8_t mode) override;
         bool SetTrackRate(double raRate, double deRate) override; 
         bool SetTrackEnabled(bool enabled) override;
@@ -92,19 +92,20 @@ class SimpleScope : public INDI::Telescope
 
     private:
         enum Command {
-            GOTO = 'A',
-            TRACK = 'B',
-            PARK = 'C',
-            SETPARKPOS = 'D',
-            GETAXISSTATUS = 'E',
-            HANDSHAKE = 'F',
-            SETTRACKRATE = 'G',
-            ERROR = 'X'
+            GOTO = 65,      // "A RA DE"
+            TRACK,          // "B TRACKRATE"
+            PARK,           // "C"
+            SETPARKPOS,     // "D"
+            GETAXISSTATUS,  // "E AXIS_NUM"
+            HANDSHAKE,      // "F"
+            SETTRACKRATE,   // "G TRACKRATE_RA TRACKRATE_DE"
+            ABORT,          // "H"
+            SETIDLE,        // "I"
+            ERROR = -1
         };
-
-        double currentHA {0};
-        double currentRA {0};
-        double currentDEC {0};
+        double currentHA;
+        double currentRA;
+        double currentDEC;
         double targetHA;
         double targetRA;
         double targetDEC;
@@ -132,5 +133,5 @@ class SimpleScope : public INDI::Telescope
 
         // Serial communication helper properties
         int DRIVER_TIMEOUT = 10;
-        char DRIVER_STOP_CHAR = '\0';
+        char DRIVER_STOP_CHAR = '\n';
 };

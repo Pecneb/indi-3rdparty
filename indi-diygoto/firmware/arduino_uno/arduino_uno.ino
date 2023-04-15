@@ -24,24 +24,27 @@
 #define AXIS_RA 0
 #define AXIS_DE 1
 
-#define GOTO_RATE 500
-#define TRACK_RATE 0.9
+#define GOTO_RATE 800
+#define TRACK_RATE 0.905
 
 enum Command {
-  GOTO = 'A',           // "A RA DE"
-  TRACK = 'B',          // "B TRACKRATE"
-  PARK = 'C',           // "C"
-  SETPARKPOS = 'D',     // "D"
-  GETAXISSTATUS = 'E',  // "E AXIS_NUM"
-  HANDSHAKE = 'F',      // "F"
-  SETTRACKRATE = 'G',   // "G TRACKRATE"
-  ERROR = 'X'
+  GOTO = 65,       // "A RA DE"
+  TRACK,          // "B TRACKRATE"
+  PARK,           // "C"
+  SETPARKPOS,     // "D"
+  GETAXISSTATUS,  // "E AXIS_NUM"
+  HANDSHAKE,      // "F"
+  SETTRACKRATE,   // "G TRACKRATE_RA TRACKRATE_DE"
+  ABORT,          // "H"
+  SETIDLE,        // "I"
+  ERROR = -1
 };
 
 enum MountStatus {
   SLEWING,
   TRACKING,
   PARKING,
+  PARKED,
   IDLE
 };
 
@@ -50,11 +53,9 @@ AccelStepper Axis_DE(AccelStepper::FULL4WIRE, DE_AIn1, DE_AIn2, DE_BIn1, DE_BIn2
 
 MountStatus mountStatus = PARKING;
 
-bool slewing = mountStatus == SLEWING;
-bool tracking = mountStatus == TRACKING;
-
 double slewRate = GOTO_RATE;
-double trackRate = TRACK_RATE;
+double RATrackRate = TRACK_RATE;
+double DETrackRate = 0;
 
 char cmdSeparator = ' ';
 
@@ -69,7 +70,7 @@ long RAHome = 0;
 long DEHome = 0;
 
 void sendError() {
-  res[0] = 'X';
+  res[0] = ERROR;
   res[1] = '\0';
   Serial.println(res);
   memset(res, 0, DRIVER_LEN);
@@ -84,80 +85,74 @@ void track() {
   mountStatus = TRACKING;
   Axis_RA.enableOutputs();
   Axis_DE.enableOutputs();
-  Axis_RA.setSpeed(trackRate);
-  Axis_DE.setSpeed(0);
+  Axis_RA.setSpeed(RATrackRate);
+  Axis_DE.setSpeed(DETrackRate);
 }
 
 void park() {
-  mountStatus = PARKING;
+  mountStatus = PARKED;
   Axis_RA.disableOutputs();
   Axis_DE.disableOutputs();
 }
 
-void parseCommand(char* cmd, char* res) {
+void parseNums(String cmdStr, long nums[2], char sep) {
+  int sidx = cmdStr.indexOf(sep, 2);
+  String n = cmdStr.substring(2, sidx);
+  nums[AXIS_RA] = n.toInt();
+  n = cmdStr.substring(sidx + 1);
+  nums[AXIS_DE] = n.toInt();
+}
+
+void parseNums(String cmdStr, float nums[2], char sep) {
+  int sidx = cmdStr.indexOf(sep, 2);
+  String n = cmdStr.substring(2, sidx);
+  nums[AXIS_RA] = n.toFloat();
+  n = cmdStr.substring(sidx + 1);
+  nums[AXIS_DE] = n.toFloat();
+}
+
+bool parseCommand(char* cmd, char* res) {
   /* @brief Parse incoming command and send response to client.
    * Implemented commands: HANDSHAKE, GOTO, TRACK, GETAXISSTATUS, PARK
    * @arguments
    *  cmd (char*): Command cstring, that is being parsed.
    *  res (char*): Response cstring, that will be sent back if everything is ok.
    */
-  char* pch; // helper pointer for command tokenisation
-  char sep = ' '; // command separator character
-  if (strcmp(cmd[0], char(HANDSHAKE)) == 0) { // Incoming handshake request, send back handshake cmd.
+  String cmdStr = String(cmd);
+  String response;
+  char cmdChar = cmd[0];
+  if (cmd[0] == HANDSHAKE) { // Incoming handshake request, send back handshake cmd.
     res[0] = HANDSHAKE;
     res[1] = '\0';
   }
-  if (strcmp(cmd[0], char(GOTO)) == 0) { // Incoming goto request, enableoutputs, tokenize command, parse target positions, set target positions and set mountStatus
+  else if (cmd[0] == GOTO) { // Incoming goto request, enableoutputs, tokenize command, parse target positions, set target positions and set mountStatus
     mountStatus = SLEWING;
     Axis_DE.enableOutputs();
     Axis_RA.enableOutputs();
-
     long axisPositions[2] = { 0 };
-    String cmdStr = String(cmd);
-    char cmdChar = cmd[0];
-
-    int sidx = cmdStr.indexOf(cmdSeparator, 2);
-    String n = cmdStr.substring(2, sidx);
-    axisPositions[AXIS_RA] = n.toInt();
-    n = cmdStr.substring(sidx + 1);
-    axisPositions[AXIS_DE] = n.toInt();
-
+    parseNums(cmdStr, axisPositions, cmdSeparator);
     RATarget = axisPositions[AXIS_RA];
     DETarget = axisPositions[AXIS_DE];
-
     Axis_RA.setMaxSpeed(slewRate);
     Axis_DE.setMaxSpeed(slewRate);
-
     Axis_RA.setAcceleration(5);
     Axis_DE.setAcceleration(5);
-
     Axis_RA.moveTo(axisPositions[AXIS_RA]);
     Axis_DE.moveTo(axisPositions[AXIS_DE]);
-
     res[0] = GOTO;
     res[1] = '\0';
+    return true;
   }
-  if (strcmp(cmd[0], char(TRACK)) == 0) { // Start tracking with trackRate
+  else if (cmd[0] == TRACK) { // Start tracking with trackRate
     track();
+    res[0] = TRACK;
+    res[1] = '\0';
+    return true;
   }
-  if (strcmp(cmd[0], char(GETAXISSTATUS)) == 0) { // Send back requested axis's position
-    int axis;
-    char cmdChar;
-    String response;
-    sscanf(cmd, "%c %d", &cmdChar, &axis);
-    switch (axis) {
-      case AXIS_RA:
-        response = String(GETAXISSTATUS) + String(" ") + String(Axis_RA.currentPosition()) + String(" ") + String(AXIS_RA);
-        strcpy(res, response.c_str());
-        break;
-      case AXIS_DE:
-        response = String(GETAXISSTATUS) + String(" ") + String(Axis_DE.currentPosition()) + String(" ") + String(AXIS_DE);
-        strcpy(res, response.c_str());
-        break;
-    }
-  }
-  if (strcmp(cmd[0], char(PARK)) == 0) { // Park telescope to home positions
+  else if (cmd[0] == PARK) { // Park telescope to home positions
     mountStatus = PARKING;
+    Axis_RA.enableOutputs();
+    Axis_DE.enableOutputs();
     Axis_RA.setMaxSpeed(slewRate);
     Axis_RA.setMaxSpeed(slewRate);
     Axis_RA.setAcceleration(5);
@@ -166,14 +161,78 @@ void parseCommand(char* cmd, char* res) {
     Axis_DE.moveTo(DEHome);
     res[0] = PARK;
     res[1] = '\0';
+    return true;
   }
+  else if (cmd[0] == SETTRACKRATE) {
+    float axisRates[2] = { 0 };
+    String cmdStr = String(cmd);
+    char cmdChar = cmd[0];
+    parseNums(cmdStr, axisRates, cmdSeparator);
+    RATrackRate = axisRates[AXIS_RA];
+    DETrackRate = axisRates[AXIS_DE];
+    track();
+    res[0] = SETTRACKRATE;
+    res[1] = '\0';    
+    return true;
+  }
+  else if (cmd[0] == GETAXISSTATUS) { // Send back requested axis's position
+    int axis;
+    char cmdChar;
+    String response;
+    sscanf(cmd, "%c %d", &cmdChar, &axis);
+    switch (axis) {
+      case AXIS_RA:
+        response = String(char(GETAXISSTATUS)) + String(" ") + String(Axis_RA.currentPosition()) + String(" ") + String(AXIS_RA);
+        strcpy(res, response.c_str());
+        break;
+      case AXIS_DE:
+        response = String(char(GETAXISSTATUS)) + String(" ") + String(Axis_DE.currentPosition()) + String(" ") + String(AXIS_DE);
+        strcpy(res, response.c_str());
+        break;
+    }
+    return true;
+  }
+  else if (cmd[0] == SETPARKPOS) {
+    long axisParkpos[2];
+    parseNums(cmdStr, axisParkpos, cmdSeparator);
+    RAHome = axisParkpos[AXIS_RA];
+    DEHome = axisParkpos[AXIS_DE];
+    res[0] = SETPARKPOS;
+    res[1] = '\0';
+    return true;
+  }
+  else if (cmd[0] == ABORT) {
+    Axis_RA.setMaxSpeed(slewRate);
+    Axis_RA.setMaxSpeed(slewRate);
+    Axis_RA.setAcceleration(5);
+    Axis_DE.setAcceleration(5);
+    Axis_RA.stop();
+    Axis_DE.stop();
+    res[0] = ABORT;
+    res[1] = '\0';
+    return true;
+  }
+  else if (cmd[0] == SETIDLE) {
+    Axis_RA.setSpeed(0);
+    Axis_DE.setSpeed(0);
+    Axis_RA.disableOutputs();
+    Axis_DE.disableOutputs();
+    res[0] = SETIDLE;
+    res[1] = '\0';
+    mountStatus = IDLE;
+    return true;
+  }
+  sendError();
+  return false;
 }
 
 void setup() {
+  // Create serial connection
   Serial.begin(9600);
   while (!Serial) {
     ;  // wait for serial port to connect
   }
+  // Set maximum stepper speed
   Axis_RA.setMaxSpeed(1000);
   Axis_DE.setMaxSpeed(1000);
   Axis_RA.disableOutputs();
@@ -199,7 +258,8 @@ void loop() {
       }
       break;
     case TRACKING:
-      tracking = Axis_RA.runSpeed() && Axis_DE.runSpeed();
+      Axis_RA.runSpeed(); 
+      Axis_DE.runSpeed();
       break;
     case PARKING:
       if (Axis_RA.currentPosition() != RAHome) Axis_RA.run(); // Run until home position reached      
