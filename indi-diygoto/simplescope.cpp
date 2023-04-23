@@ -380,8 +380,9 @@ INDI_EQ_AXIS SimpleScope::GetDEEncoder(int32_t* steps) {
 double SimpleScope::GetRASlew()
 {
     ISwitch *sw;
-    double rate = 1.0;
+    double rate = SLEW_RATE;
     sw          = IUFindOnSwitch(&SlewRateSP);
+    LOGF_DEBUG("%s", sw->name);
     if (!strcmp(sw->name, "SLEW_GUIDE"))
         rate = FINE_SLEW_RATE;
     if (!strcmp(sw->name, "SLEW_CENTERING"))
@@ -390,8 +391,6 @@ double SimpleScope::GetRASlew()
         rate = SLEW_RATE * 2;
     if (!strcmp(sw->name, "SLEW_MAX"))
         rate = GOTO_RATE;
-    else
-        rate = *((double *)sw->aux);
     LOGF_DEBUG("RASlewRate %.6f", rate);
     return rate;
 }
@@ -399,7 +398,7 @@ double SimpleScope::GetRASlew()
 double SimpleScope::GetDESlew()
 {
     ISwitch *sw;
-    double rate = 1.0;
+    double rate = SLEW_RATE;
     sw          = IUFindOnSwitch(&SlewRateSP);
     if (!strcmp(sw->name, "SLEW_GUIDE"))
         rate = FINE_SLEW_RATE;
@@ -409,8 +408,6 @@ double SimpleScope::GetDESlew()
         rate = SLEW_RATE * 2;
     if (!strcmp(sw->name, "SLEW_MAX"))
         rate = GOTO_RATE;
-    else
-        rate = *((double *)sw->aux);
     LOGF_DEBUG("DESlewRate %.6f", rate);
     return rate;
 }
@@ -424,9 +421,9 @@ bool SimpleScope::SetRASlew(double rate) {
     sprintf(cmd, "%c %d %f%c", SETSLEWRATE, AXIS_RA, stepperRate, DRIVER_STOP_CHAR);
     sendCommand(cmd, res, 0, 0);
 
-    if (res[0] != ERROR)
-        return true;
-    return false;
+    if (res[0] == ERROR)
+        return false;
+    return true;
 }
 
 bool SimpleScope::SetDESlew(double rate) {
@@ -438,9 +435,9 @@ bool SimpleScope::SetDESlew(double rate) {
     sprintf(cmd, "%c %d %f%c", SETSLEWRATE, AXIS_DE, stepperRate, DRIVER_STOP_CHAR);
     sendCommand(cmd, res, 0, 0);
 
-    if (res[0] != ERROR)
-        return true;
-    return false;
+    if (res[0] == ERROR)
+        return false;
+    return true;
 }
 
 bool SimpleScope::MoveNS(INDI_DIR_NS dir, TelescopeMotionCommand command) {
