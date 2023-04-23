@@ -158,8 +158,8 @@ bool parseCommand(char* cmd, char* res) {
     mountStatus = PARKING;
     Axis_RA.enableOutputs();
     Axis_DE.enableOutputs();
-    Axis_RA.setMaxSpeed(slewRateRA);
-    Axis_DE.setMaxSpeed(slewRateDE);
+    Axis_RA.setMaxSpeed(gotoRate);
+    Axis_DE.setMaxSpeed(gotoRate);
     Axis_RA.setAcceleration(5);
     Axis_DE.setAcceleration(5);
     Axis_RA.moveTo(RAHome);

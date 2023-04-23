@@ -381,6 +381,16 @@ class SimpleScope : public INDI::Telescope
             ERROR = -1
         };
 
+        enum AXIS_MOTION {
+            SLEWING_TO,
+            SLEWING,
+            IDLE,
+            TRACKING,
+            PARKING
+        };
+
+        AXIS_MOTION AxisStatus;
+
         double RAInverted, DEInverted;
 
         double currentHA;
