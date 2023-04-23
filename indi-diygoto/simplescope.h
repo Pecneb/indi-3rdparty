@@ -59,6 +59,13 @@ class SimpleScope : public INDI::Telescope
          * @return const char* 
          */
         const char *getDefaultName() override;
+
+        /**
+         * @brief Initialize default property values
+         * 
+         * @return true 
+         * @return false 
+         */
         bool initProperties() override;
 
         // Telescope specific functions
@@ -79,6 +86,20 @@ class SimpleScope : public INDI::Telescope
          * @return false 
          */
         bool Goto(double, double) override;
+        /**
+         * @brief Move telescope to North or South direction
+         * 
+         * @return true 
+         * @return false 
+         */
+        bool MoveNS(INDI_DIR_NS, TelescopeMotionCommand) override;
+        /**
+         * @brief Move telescope to West or East direction
+         * 
+         * @return true 
+         * @return false 
+         */
+        bool MoveWE(INDI_DIR_WE, TelescopeMotionCommand) override;
         /**
          * @brief Abort mount motion, stop steppers as soon as possible, but not instantly. 
          * 
@@ -131,8 +152,24 @@ class SimpleScope : public INDI::Telescope
          */
         double GetDETrackRate();
         /**
+         * @brief Start RA axis tracking
+         * 
+         * @param rate
+         * @return true
+         * @return false
+        */
+        //bool StartRATracking(double rate);
+        /**
+         * @brief Start DE axis tracking
+         * 
+         * @return true
+         * @return false
+        */
+        //bool StartDETracking(double rate);
+        /**
          * @brief Start tracking
          * 
+         * @param rate
          * @return true 
          * @return false 
          */
@@ -170,6 +207,35 @@ class SimpleScope : public INDI::Telescope
          */
         bool SetTrackEnabled(bool enabled) override;
 
+        // Slewing
+        /**
+         * @brief Get RA Slew rate used at the GOTO and manual slewing
+         * 
+         * @return double 
+         */
+        double GetRASlew();
+        /**
+         * @brief Get DE Slew rate used at the GOTO and manual slewing
+         * 
+         * @return double 
+         */
+        double GetDESlew();
+        /**
+         * @brief Set RA slewrate
+         * 
+         * @param rate 
+         * @return true 
+         * @return false 
+         */
+        bool SetRASlew(double);
+        /**
+         * @brief Set DE slewrate
+         * 
+         * @param rate 
+         * @return true 
+         * @return false 
+         */
+        bool SetDESlew(double);
         /**
          * @brief Get the Longitude
          * 
@@ -309,6 +375,9 @@ class SimpleScope : public INDI::Telescope
             SETTRACKRATE,   // "G TRACKRATE_RA TRACKRATE_DE"
             ABORT,          // "H"
             SETIDLE,        // "I"
+            MOVE,           // "J"
+            STOP,           // "K"
+            SETSLEWRATE,    // "L"
             ERROR = -1
         };
 
@@ -339,6 +408,11 @@ class SimpleScope : public INDI::Telescope
         uint8_t DBG_SCOPE { INDI::Logger::DBG_IGNORE };
 
         /**
+         * @brief Append DRIVER_STOP_CHAR to the end of the command 
+         * 
+         */
+        void constructCommand(char*);
+        /**
          * @brief Dispatch command to the arduino on serial port.
          * 
          * @return true 
@@ -352,6 +426,6 @@ class SimpleScope : public INDI::Telescope
         void hexDump(char*, const char*, int);
 
         // Serial communication helper properties
-        int DRIVER_TIMEOUT = 10;
-        char DRIVER_STOP_CHAR = '\n';
+        int DRIVER_TIMEOUT = 3;
+        char DRIVER_STOP_CHAR = '#';
 };

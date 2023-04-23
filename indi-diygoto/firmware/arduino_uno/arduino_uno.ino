@@ -2,6 +2,7 @@
  * @Author: Bence Peter (ecneb2000@gmail.com)
  * @Copyright
  */
+#include <Arduino.h>
 #include <elapsedMillis.h>
 
 #include <AccelStepper.h>
@@ -25,22 +26,28 @@
 #define AXIS_DE 1
 
 #define GOTO_RATE 800
+#define SLEWRATE_RA 80
+#define SLEWRATE_DE 80
 #define TRACK_RATE 0.905
 
 enum Command {
   GOTO = 65,       // "A RA DE"
-  TRACK,          // "B TRACKRATE"
+  TRACK,          // "B"
   PARK,           // "C"
   SETPARKPOS,     // "D"
-  GETAXISSTATUS,  // "E AXIS_NUM"
+  GETAXISSTATUS,  // "E AXIS"
   HANDSHAKE,      // "F"
   SETTRACKRATE,   // "G TRACKRATE_RA TRACKRATE_DE"
   ABORT,          // "H"
   SETIDLE,        // "I"
+  MOVE,           // "J AXIS"
+  STOP,           // "K AXIS"
+  SETSLEWRATE,    // "L AXIS RATE"
   ERROR = -1
 };
 
 enum MountStatus {
+  GOTOING, // KEKW
   SLEWING,
   TRACKING,
   PARKING,
@@ -52,8 +59,12 @@ AccelStepper Axis_RA(AccelStepper::FULL4WIRE, RA_AIn1, RA_AIn2, RA_BIn1, RA_BIn2
 AccelStepper Axis_DE(AccelStepper::FULL4WIRE, DE_AIn1, DE_AIn2, DE_BIn1, DE_BIn2);
 
 MountStatus mountStatus = PARKING;
+MountStatus axisStatus[2] {IDLE, IDLE};
+AccelStepper Axes[2] {Axis_RA, Axis_DE};
 
-double slewRate = GOTO_RATE;
+double gotoRate = GOTO_RATE;
+double slewRateRA = SLEWRATE_RA;
+double slewRateDE = SLEWRATE_DE;
 double RATrackRate = TRACK_RATE;
 double DETrackRate = 0;
 
@@ -71,7 +82,7 @@ long DEHome = 0;
 
 void sendError() {
   res[0] = ERROR;
-  res[1] = '\0';
+  res[1] = '#';
   Serial.println(res);
   memset(res, 0, DRIVER_LEN);
 }
@@ -112,55 +123,49 @@ void parseNums(String cmdStr, float nums[2], char sep) {
 }
 
 bool parseCommand(char* cmd, char* res) {
-  /* @brief Parse incoming command and send response to client.
-   * Implemented commands: HANDSHAKE, GOTO, TRACK, GETAXISSTATUS, PARK
-   * @arguments
-   *  cmd (char*): Command cstring, that is being parsed.
-   *  res (char*): Response cstring, that will be sent back if everything is ok.
-   */
   String cmdStr = String(cmd);
   String response;
   char cmdChar = cmd[0];
   if (cmd[0] == HANDSHAKE) { // Incoming handshake request, send back handshake cmd.
     res[0] = HANDSHAKE;
-    res[1] = '\0';
+    res[1] = '#';
   }
   else if (cmd[0] == GOTO) { // Incoming goto request, enableoutputs, tokenize command, parse target positions, set target positions and set mountStatus
-    mountStatus = SLEWING;
+    mountStatus = GOTOING;
     Axis_DE.enableOutputs();
     Axis_RA.enableOutputs();
     long axisPositions[2] = { 0 };
     parseNums(cmdStr, axisPositions, cmdSeparator);
     RATarget = axisPositions[AXIS_RA];
     DETarget = axisPositions[AXIS_DE];
-    Axis_RA.setMaxSpeed(slewRate);
-    Axis_DE.setMaxSpeed(slewRate);
+    Axis_RA.setMaxSpeed(gotoRate);
+    Axis_DE.setMaxSpeed(gotoRate);
     Axis_RA.setAcceleration(5);
     Axis_DE.setAcceleration(5);
     Axis_RA.moveTo(axisPositions[AXIS_RA]);
     Axis_DE.moveTo(axisPositions[AXIS_DE]);
     res[0] = GOTO;
-    res[1] = '\0';
+    res[1] = '#';
     return true;
   }
   else if (cmd[0] == TRACK) { // Start tracking with trackRate
     track();
     res[0] = TRACK;
-    res[1] = '\0';
+    res[1] = '#';
     return true;
   }
   else if (cmd[0] == PARK) { // Park telescope to home positions
     mountStatus = PARKING;
     Axis_RA.enableOutputs();
     Axis_DE.enableOutputs();
-    Axis_RA.setMaxSpeed(slewRate);
-    Axis_RA.setMaxSpeed(slewRate);
+    Axis_RA.setMaxSpeed(slewRateRA);
+    Axis_DE.setMaxSpeed(slewRateDE);
     Axis_RA.setAcceleration(5);
     Axis_DE.setAcceleration(5);
     Axis_RA.moveTo(RAHome);
     Axis_DE.moveTo(DEHome);
     res[0] = PARK;
-    res[1] = '\0';
+    res[1] = '#';
     return true;
   }
   else if (cmd[0] == SETTRACKRATE) {
@@ -172,7 +177,7 @@ bool parseCommand(char* cmd, char* res) {
     DETrackRate = axisRates[AXIS_DE];
     track();
     res[0] = SETTRACKRATE;
-    res[1] = '\0';    
+    res[1] = '#';    
     return true;
   }
   else if (cmd[0] == GETAXISSTATUS) { // Send back requested axis's position
@@ -182,11 +187,11 @@ bool parseCommand(char* cmd, char* res) {
     sscanf(cmd, "%c %d", &cmdChar, &axis);
     switch (axis) {
       case AXIS_RA:
-        response = String(char(GETAXISSTATUS)) + String(" ") + String(Axis_RA.currentPosition()) + String(" ") + String(AXIS_RA);
+        response = String(char(GETAXISSTATUS)) + String(" ") + String(Axis_RA.currentPosition()) + String(" ") + String(AXIS_RA) + String("#");
         strcpy(res, response.c_str());
         break;
       case AXIS_DE:
-        response = String(char(GETAXISSTATUS)) + String(" ") + String(Axis_DE.currentPosition()) + String(" ") + String(AXIS_DE);
+        response = String(char(GETAXISSTATUS)) + String(" ") + String(Axis_DE.currentPosition()) + String(" ") + String(AXIS_DE) + String("#");
         strcpy(res, response.c_str());
         break;
     }
@@ -198,18 +203,18 @@ bool parseCommand(char* cmd, char* res) {
     RAHome = axisParkpos[AXIS_RA];
     DEHome = axisParkpos[AXIS_DE];
     res[0] = SETPARKPOS;
-    res[1] = '\0';
+    res[1] = '#';
     return true;
   }
   else if (cmd[0] == ABORT) {
-    Axis_RA.setMaxSpeed(slewRate);
-    Axis_RA.setMaxSpeed(slewRate);
+    Axis_RA.setMaxSpeed(gotoRate);
+    Axis_DE.setMaxSpeed(gotoRate);
     Axis_RA.setAcceleration(5);
     Axis_DE.setAcceleration(5);
     Axis_RA.stop();
     Axis_DE.stop();
     res[0] = ABORT;
-    res[1] = '\0';
+    res[1] = '#';
     return true;
   }
   else if (cmd[0] == SETIDLE) {
@@ -218,8 +223,53 @@ bool parseCommand(char* cmd, char* res) {
     Axis_RA.disableOutputs();
     Axis_DE.disableOutputs();
     res[0] = SETIDLE;
-    res[1] = '\0';
+    res[1] = '#';
     mountStatus = IDLE;
+    return true;
+  }
+  else if (cmd[0] == MOVE) {
+    Axis_RA.enableOutputs();
+    Axis_DE.enableOutputs();
+    Axis_RA.setSpeed(slewRateRA);
+    Axis_DE.setSpeed(slewRateDE);
+    int axis = -1;
+    char cmdChar;
+    sscanf(cmd, "%c %d", &cmdChar, &axis);
+    Serial.println(axis);
+    if (axis == AXIS_RA)
+      axisStatus[AXIS_RA] = SLEWING;
+    if (axis == AXIS_DE)
+      axisStatus[AXIS_DE] = SLEWING;
+    if (axisStatus[AXIS_RA] == SLEWING || axisStatus[AXIS_DE] == SLEWING)
+      mountStatus = SLEWING;
+    res[0] = MOVE;
+    res[1] = '#';
+    return true;
+  }
+  else if (cmd[0] == STOP) {
+    int axis = -1;
+    char cmdChar;
+    sscanf(cmd, "%c %d", &cmdChar, &axis);
+    axisStatus[axis] = IDLE;
+    Axes[axis].disableOutputs();
+    if (axisStatus[0] == IDLE && axisStatus[1] == IDLE) // if both axes are idle, set mount to idle
+      mountStatus = IDLE;
+    res[0] = STOP;
+    res[1] = '#';
+    return true;
+  }
+  else if (cmd[0] == SETSLEWRATE) {
+    float axisRate[2] = { 0 };
+    String cmdStr = String(cmd);
+    char cmdChar = cmd[0];
+    parseNums(cmdStr, axisRate, cmdSeparator);
+    int axisNum = axisRate[0];
+    if (axisNum == AXIS_RA)
+      slewRateRA = axisRate[1];
+    else if (axisNum == AXIS_DE)
+      slewRateDE = axisRate[1];
+    res[0] = SETSLEWRATE;
+    res[1] = '#';    
     return true;
   }
   sendError();
@@ -228,7 +278,7 @@ bool parseCommand(char* cmd, char* res) {
 
 void setup() {
   // Create serial connection
-  Serial.begin(9600);
+  Serial.begin(115200);
   while (!Serial) {
     ;  // wait for serial port to connect
   }
@@ -250,12 +300,18 @@ void loop() {
     cmdComplete = false;
   }
   switch (mountStatus) {
-    case SLEWING:
+    case GOTOING:
       if (Axis_RA.currentPosition() != RATarget) Axis_RA.run(); // Run until target position reached      
       if (Axis_DE.currentPosition() != DETarget) Axis_DE.run(); // Run until target position reached
       if (Axis_RA.currentPosition() == RATarget && Axis_DE.currentPosition() == DETarget) { // If both axes reached their target position, start tracking
         track();
       }
+      break;
+    case SLEWING:
+      if (axisStatus[AXIS_RA] == SLEWING)
+        Axis_RA.runSpeed();
+      if (axisStatus[AXIS_DE] == SLEWING)
+        Axis_DE.runSpeed();
       break;
     case TRACKING:
       Axis_RA.runSpeed(); 
@@ -279,7 +335,7 @@ void serialEvent() {
     tmpCmd += inChar;
     // if the incoming character is a newline, set a flag so the main loop can
     // do something about it:
-    if (inChar == '\n') {
+    if (inChar == '#') {
       cmdComplete = true;
     }
   }

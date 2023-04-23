@@ -1,23 +1,13 @@
-/*
-   INDI Developers Manual
-   Tutorial #2
-
-   "Simple Telescope Driver"
-
-   We develop a simple telescope simulator.
-
-   Refer to README, which contains instruction on how to build this driver, and use it
-   with an INDI-compatible client.
-
-*/
-
-/** \file simplescope.cpp
-    \brief Construct a basic INDI telescope device that simulates GOTO commands.
-    \author Jasem Mutlaq
-
-    \example simplescope.cpp
-    A simple GOTO telescope that simulator slewing operation.
-*/
+/**
+ * @file simplescope.cpp
+ * @author Bence Peter (ecneb2000@gmail.com)
+ * @brief Simple GOTO implementation with Arduino UNO and Stepper Motors
+ * @version 0.1
+ * @date 2023-03-19
+ * 
+ * @copyright Copyright (c) 2023
+ * 
+ */
 
 #include "simplescope.h"
 
@@ -60,7 +50,7 @@ SimpleScope::SimpleScope()
                             TELESCOPE_HAS_PIER_SIDE     | 
                             TELESCOPE_HAS_TRACK_MODE    | 
                             TELESCOPE_HAS_TRACK_RATE    |
-                            TELESCOPE_CAN_PARK, SLEWMODES);
+                            TELESCOPE_CAN_PARK, 4);
 }
 
 /**************************************************************************************
@@ -70,7 +60,8 @@ bool SimpleScope::initProperties()
 {
     // ALWAYS call initProperties() of parent first
     INDI::Telescope::initProperties();
-
+    
+    /*
     for (int i = 0; i < SlewRateSP.nsp - 1; i++) {
         SlewRateSP.sp[i].s = ISS_OFF;
         sprintf(SlewRateSP.sp[i].label, "%.fx", slewspeeds[i]);
@@ -83,6 +74,7 @@ bool SimpleScope::initProperties()
     // Last is custom
     strncpy(SlewRateSP.sp[SlewRateSP.nsp - 1].name, "SLEWCUSTOM", MAXINDINAME);
     strncpy(SlewRateSP.sp[SlewRateSP.nsp - 1].label, "Custom", MAXINDILABEL);
+    */
 
     AddTrackMode("TRACK_SIDEREAL", "Sidereal", true);
     AddTrackMode("TRACK_SOLAR", "Solar");
@@ -100,11 +92,13 @@ bool SimpleScope::initProperties()
 
     addAuxControls();
 
+    /*
     serialConnection = new Connection::Serial(this);
     serialConnection->registerHandshake([&]() { return Handshake(); })
     serialConnection->setDefaultBaudRate(Connection::Serial::B_9600);
     serialConnection->setDefaultPort("/dev/ttyACM0");
     registerConnection(serialConnection);
+    */
 
     return true;
 }
@@ -116,8 +110,11 @@ bool SimpleScope::Handshake()
 {
     if (isSimulation()) return true;
 
-    char cmd[DRIVER_LEN] {HANDSHAKE};
+    char cmd[DRIVER_LEN] { 0 };
     char res[DRIVER_LEN] { 0 };
+    cmd[0] = HANDSHAKE;
+    cmd[1] = DRIVER_STOP_CHAR;
+    cmd[2] = '\0';
     sendCommand(cmd, res, 0, 0);
 
     if (cmd[0] != ERROR) return true;
@@ -130,7 +127,7 @@ bool SimpleScope::Park() {
     } else {
         char cmd[DRIVER_LEN] {0};
         char res[DRIVER_LEN] {0};
-        sprintf(cmd, "%c", PARK);
+        sprintf(cmd, "%c%c", PARK, DRIVER_STOP_CHAR);
         sendCommand(cmd, res, 0, 0);
         if (res[0] != ERROR) {
             TrackState = SCOPE_PARKING;
@@ -182,7 +179,7 @@ double SimpleScope::StepsToHours(int32_t steps, uint32_t totalstep) {
         result = 24.0 + result;
     }
     result = range24(result - 6);
-    LOGF_DEBUG("Calculating steps: %i to hours: %f", steps, result);
+    //LOGF_DEBUG("Calculating steps: %i to hours: %f", steps, result);
     return result;
 }
 
@@ -297,7 +294,7 @@ bool SimpleScope::Goto(double ra, double dec)
     char cmd[DRIVER_LEN] {0};
     char res[DRIVER_LEN] {0};
 
-    sprintf(cmd, "%c %d %d", GOTO, targetRAEncoder, targetDEEncoder);
+    sprintf(cmd, "%c %d %d%c", GOTO, targetRAEncoder, targetDEEncoder, DRIVER_STOP_CHAR);
     sendCommand(cmd, res, DRIVER_LEN, DRIVER_LEN);
 
     LOGF_DEBUG("Goto response: %s", res);
@@ -328,7 +325,7 @@ bool SimpleScope::Abort()
 {
     char cmd[DRIVER_LEN] {0};
     char res[DRIVER_LEN] {0};
-    sprintf(cmd, "%c", ABORT);
+    sprintf(cmd, "%c%c", ABORT, DRIVER_STOP_CHAR);
     sendCommand(cmd, res, 0, 0);
     if (res[0] != ERROR) return true;
     return false;
@@ -341,7 +338,7 @@ INDI_EQ_AXIS SimpleScope::GetRAEncoder(int32_t* steps) {
     int axis_num;
     char resCode;
 
-    sprintf(cmd, "%c %d\n", GETAXISSTATUS, AXIS_RA);
+    sprintf(cmd, "%c %d%c", GETAXISSTATUS, AXIS_RA, DRIVER_STOP_CHAR);
     sendCommand(cmd, res, 0, 0);
     sscanf(res, "%c %d %d", &resCode, &RaSteps, &axis_num);
     if (axis_num == AXIS_RA) *steps = RaSteps;
@@ -356,12 +353,200 @@ INDI_EQ_AXIS SimpleScope::GetDEEncoder(int32_t* steps) {
     int axis_num;
     char resCode;
 
-    sprintf(cmd, "%c %d\n", GETAXISSTATUS, AXIS_DE);
+    sprintf(cmd, "%c %d%c", GETAXISSTATUS, AXIS_DE, DRIVER_STOP_CHAR);
     sendCommand(cmd, res, 0, 0);
     sscanf(res, "%c %d %d", &resCode, &DeSteps, &axis_num);
     if (axis_num == AXIS_DE) *steps = DeSteps; 
     if (*steps != lastDEStep) lastDEStep = *steps;
     return static_cast<INDI_EQ_AXIS>(axis_num);
+}
+
+double SimpleScope::GetRASlew()
+{
+    ISwitch *sw;
+    double rate = 1.0;
+    sw          = IUFindOnSwitch(&SlewRateSP);
+    if (!strcmp(sw->name, "SLEW_GUIDE"))
+        rate = FINE_SLEW_RATE;
+    if (!strcmp(sw->name, "SLEW_CENTERING"))
+        rate = SLEW_RATE;
+    if (!strcmp(sw->name, "SLEW_FIND"))
+        rate = SLEW_RATE * 2;
+    if (!strcmp(sw->name, "SLEW_MAX"))
+        rate = GOTO_RATE;
+    else
+        rate = *((double *)sw->aux);
+    LOGF_DEBUG("RASlewRate %.6f", rate);
+    return rate;
+}
+
+double SimpleScope::GetDESlew()
+{
+    ISwitch *sw;
+    double rate = 1.0;
+    sw          = IUFindOnSwitch(&SlewRateSP);
+    if (!strcmp(sw->name, "SLEW_GUIDE"))
+        rate = FINE_SLEW_RATE;
+    if (!strcmp(sw->name, "SLEW_CENTERING"))
+        rate = SLEW_RATE;
+    if (!strcmp(sw->name, "SLEW_FIND"))
+        rate = SLEW_RATE * 2;
+    if (!strcmp(sw->name, "SLEW_MAX"))
+        rate = GOTO_RATE;
+    else
+        rate = *((double *)sw->aux);
+    LOGF_DEBUG("DESlewRate %.6f", rate);
+    return rate;
+}
+
+bool SimpleScope::SetRASlew(double rate) {
+    char* cmd[DRIVER_LEN] {0};
+    char* res[DRIVER_LEN] {0};
+
+    double stepperRate = rate / STEPSIZE_RA;
+
+    sprintf(cmd, "%c %d %f%c", SETSLEWRATE, AXIS_RA, stepperRate, DRIVER_STOP_CHAR);
+    sendCommand(cmd, res, nullptr, nullptr);
+
+    if (res[0] != ERROR)
+        return true;
+    return false;
+}
+
+bool SimpleScope::SetDESlew(double rate) {
+    char* cmd[DRIVER_LEN] {0};
+    char* res[DRIVER_LEN] {0};
+
+    double stepperRate = rate / STEPSIZE_DE;
+
+    sprintf(cmd, "%c %d %f%c", SETSLEWRATE, AXIS_DE, stepperRate, DRIVER_STOP_CHAR);
+    sendCommand(cmd, res, nullptr, nullptr);
+
+    if (res[0] != ERROR)
+        return true;
+    return false;
+}
+
+bool SimpleScope::MoveNS(INDI_DIR_NS dir, TelescopeMotionCommand command) {
+    const char *dirStr = (dir == DIRECTION_NORTH) ? "North" : "South";
+    double rate        = (dir == DIRECTION_NORTH) ? GetDESlew() : GetDESlew() * -1;
+
+    switch (command)
+    {
+        case MOTION_START:
+            if (gotoInProgress() || (TrackState == SCOPE_PARKING) || (TrackState == SCOPE_PARKED))
+            {
+                LOG_WARN("Can not slew while goto/park in progress, or scope parked.");
+                return false;
+            }
+
+            LOGF_INFO("Starting %s slew.", dirStr);
+            if (DEInverted)
+                rate = -rate;
+            if (!SetDESlew(rate))
+                return false;
+            
+            char* cmd[DRIVER_LEN] {0};
+            char* res[DRIVER_LEN] {0};
+
+            sprintf(cmd, "%c %d%c", MOVE, AXIS_DE, DRIVER_STOP_CHAR);
+
+            sendCommand(cmd, res, nullptr, nullptr);
+
+            if (res[0] == ERROR)
+                return false;
+
+            TrackState = SCOPE_SLEWING;
+            break;
+
+        case MOTION_STOP:
+            LOGF_INFO("%s Slew stopped", dirStr);
+
+            char* cmd[DRIVER_LEN] {0};
+            char* res[DRIVER_LEN] {0};
+
+            sprintf(cmd, "%c %d%c", STOP, AXIS_DE, DRIVER_STOP_CHAR);
+
+            sendCommand(cmd, res, nullptr, nullptr);
+
+            if (res[0] == ERROR)
+                return false;
+
+            if (RememberTrackState == SCOPE_TRACKING)
+            {
+                LOG_INFO("Restarting DE Tracking...");
+                TrackState = SCOPE_TRACKING;
+                StartTracking();
+            }
+            else
+                TrackState = SCOPE_IDLE;
+
+            RememberTrackState = TrackState;
+
+            break;
+    }
+    return true;
+}
+
+bool SimpleScope::MoveWE(INDI_DIR_NS dir, TelescopeMotionCommand command) {
+    const char *dirStr = (dir == DIRECTION_NORTH) ? "West" : "East";
+    double rate        = (dir == DIRECTION_NORTH) ? GetRASlew() : GetRASlew() * -1;
+
+    switch (command)
+    {
+        case MOTION_START:
+            if (gotoInProgress() || (TrackState == SCOPE_PARKING) || (TrackState == SCOPE_PARKED))
+            {
+                LOG_WARN("Can not slew while goto/park in progress, or scope parked.");
+                return false;
+            }
+
+            LOGF_INFO("Starting %s slew.", dirStr);
+            if (DEInverted)
+                rate = -rate;
+            if (!SetRASlew(rate))
+                return false;
+            
+            char* cmd[DRIVER_LEN] {0};
+            char* res[DRIVER_LEN] {0};
+
+            sprintf(cmd, "%c %d%c", MOVE, AXIS_RA, DRIVER_STOP_CHAR);
+
+            sendCommand(cmd, res, nullptr, nullptr);
+
+            if (res[0] == ERROR)
+                return false;
+
+            TrackState = SCOPE_SLEWING;
+            break;
+
+        case MOTION_STOP:
+            LOGF_INFO("%s Slew stopped", dirStr);
+
+            char* cmd[DRIVER_LEN] {0};
+            char* res[DRIVER_LEN] {0};
+
+            sprintf(cmd, "%c %d%c", STOP, AXIS_RA, DRIVER_STOP_CHAR);
+
+            sendCommand(cmd, res, nullptr, nullptr);
+
+            if (res[0] == ERROR)
+                return false;
+
+            if (RememberTrackState == SCOPE_TRACKING)
+            {
+                LOG_INFO("Restarting DE Tracking...");
+                TrackState = SCOPE_TRACKING;
+                StartTracking();
+            }
+            else
+                TrackState = SCOPE_IDLE;
+
+            RememberTrackState = TrackState;
+
+            break;
+    }
+    return true;
 }
 
 double SimpleScope::GetRATrackRate()
@@ -431,7 +616,7 @@ bool SimpleScope::SetRaRate(double raRate) {
 
     double stepRate = StepsFromDegree(raRate, STEPS_PER_RA_REV);
 
-    sprintf(cmd, "%c %f\n", SETTRACKRATE, stepRate);
+    sprintf(cmd, "%c %f%c", SETTRACKRATE, stepRate, DRIVER_STOP_CHAR);
     sendCommand(cmd, res, 0, 0);
     sscanf(res, "%c", &resCode);
 
@@ -446,7 +631,7 @@ bool SimpleScope::SetDeRate(double deRate) {
 
     double stepRate = StepsFromDegree(deRate, STEPS_PER_DE_REV);
 
-    sprintf(cmd, "%c %f\n", SETTRACKRATE, stepRate);
+    sprintf(cmd, "%c %f%c", SETTRACKRATE, stepRate, DRIVER_STOP_CHAR);
     sendCommand(cmd, res, 0, 0);
 
     LOGF_INFO("Setting Tracking Rate - DE=%.6f arcsec/s", deRate);
@@ -459,13 +644,16 @@ bool SimpleScope::SetTrackRate(double raRate, double deRate) {
     double DEStepRate = (CW * deRate / 3600) / STEPSIZE_DE;
     char cmd[DRIVER_LEN] {0};
     char res[DRIVER_LEN] {0};
-    sprintf(cmd, "%c %f %f\n", SETTRACKRATE, RAStepRate, DEStepRate);
+    sprintf(cmd, "%c %f %f%c", SETTRACKRATE, RAStepRate, DEStepRate, DRIVER_STOP_CHAR);
     if (res[0] == ERROR) return false;
     LOGF_INFO("Setting Custom Tracking Rates - RA=%.6f  DE=%.6f arcsec/s", raRate, deRate);
     return StartTracking();
 }
 
 bool SimpleScope::SetTrackMode(uint8_t mode) {
+    ISwitch *sw;
+    sw = IUFindOnSwitch(&TrackModeSP);
+
     double RArate = GetRATrackRate();
     double DErate = GetDETrackRate();
 
@@ -475,7 +663,7 @@ bool SimpleScope::SetTrackMode(uint8_t mode) {
     char cmd[DRIVER_LEN] {0};
     char res[DRIVER_LEN] {0};
     
-    sprintf(cmd, "%c %f %f\n", SETTRACKRATE, RArate, DErate);
+    sprintf(cmd, "%c %f %f%c", SETTRACKRATE, RArate, DErate, DRIVER_STOP_CHAR);
 
     char expectedRes[DRIVER_LEN] {SETTRACKRATE};
     sendCommand(cmd, res, 0, 0);
@@ -506,7 +694,7 @@ bool SimpleScope::StartTracking() {
     char cmd[DRIVER_LEN] {0};
     char res[DRIVER_LEN] {0};
     char expRes[DRIVER_LEN] {TRACK};
-    sprintf(cmd, "%c\n", TRACK);
+    sprintf(cmd, "%c%c", TRACK, DRIVER_STOP_CHAR);
     if (res[0] == ERROR)
         return false;
     LOGF_INFO("Start Tracking (%s).", IUFindOnSwitch(&TrackModeSP)->label);
@@ -517,7 +705,7 @@ bool SimpleScope::StopTracking() {
     char cmd[DRIVER_LEN] {0};
     char res[DRIVER_LEN] {0};
     char expRes[DRIVER_LEN] {SETIDLE};
-    sprintf(cmd, "%c\n", SETIDLE);
+    sprintf(cmd, "%c%c", SETIDLE, DRIVER_STOP_CHAR);
 
     if (res[0] == ERROR)
         return false;
@@ -690,6 +878,10 @@ bool SimpleScope::ReadScopeStatus()
 
     NewRaDec(currentRA, currentDEC);
     return true;
+}
+
+void SimpleScope::constructCommand(char *cmd) {
+    sprintf(cmd, "%s%c", cmd, DRIVER_STOP_CHAR);
 }
 
 bool SimpleScope::sendCommand(const char * cmd, char * res, int cmd_len, int res_len)
