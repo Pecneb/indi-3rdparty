@@ -51,6 +51,7 @@ SimpleScope::SimpleScope()
                             TELESCOPE_HAS_PIER_SIDE     | 
                             TELESCOPE_HAS_TRACK_MODE    | 
                             TELESCOPE_HAS_TRACK_RATE    |
+                            TELESCOPE_HAS_LOCATION      |
                             TELESCOPE_CAN_PARK, 4);
 }
 
@@ -59,6 +60,7 @@ SimpleScope::SimpleScope()
 ***************************************************************************************/
 bool SimpleScope::initProperties()
 {
+    LOG_INFO("Initializing properties...");
     // ALWAYS call initProperties() of parent first
     INDI::Telescope::initProperties();
    
@@ -113,7 +115,7 @@ bool SimpleScope::initProperties()
     serialConnection->setDefaultPort("/dev/ttyACM0");
     registerConnection(serialConnection);
     */
-
+    LOG_INFO("Initializing properties done!");
     return true;
 }
 
@@ -194,7 +196,7 @@ double SimpleScope::StepsToHours(int32_t steps, uint32_t totalstep) {
         result = 24.0 + result;
     }
     result = range24(result - 6);
-    //LOGF_DEBUG("Calculating steps: %i to hours: %f", steps, result);
+    LOGF_DEBUG("Calculating steps: %i to hours: %f", steps, result);
     return result;
 }
 
@@ -211,6 +213,7 @@ void SimpleScope::StepsToRADE(int32_t rastep, int32_t destep, double lst, double
     TelescopePierSide p;
     HACurrent = StepsToHours(rastep, STEPS_PER_RA_REV); 
     RACurrent = lst - HACurrent;
+    LOGF_DEBUG("Calculation RA from HA %f and lst %f", HACurrent, lst);
     DECurrent = StepsToDegree(destep, STEPS_PER_DE_REV);
     if ((DECurrent > 90.0) && (DECurrent <= 270.0)) {
         p = PIER_EAST;
@@ -286,6 +289,7 @@ bool SimpleScope::Goto(double ra, double dec)
     juliandate = getJulianDate();
     lng = getLongitude();
     lst = getLst(juliandate, lng);
+    LOGF_DEBUG("Julian date: %f Longitude: %f Lst: %f", juliandate, lng, lst);
 
     targetRA = ra;
     targetDEC = dec;
@@ -737,6 +741,7 @@ bool SimpleScope::ReadScopeStatus()
     // Time
     double juliandate = 0;
     double lst = 0;
+    double lng = 0;
     char hrlst[12] = {0};
 
     /*const char *datenames[] = { "LST", "JULIANDATE", "UTC" };
@@ -748,8 +753,9 @@ bool SimpleScope::ReadScopeStatus()
     const char *steppernames[] = { "RAStepsCurrent", "DEStepsCurrent" };
     */
 
+    lng = getLongitude();
     juliandate = getJulianDate();
-    lst        = getLst(juliandate, getLongitude());
+    lst        = getLst(juliandate, lng);
 
     fs_sexa(hrlst, lst, 2, 360000);
     hrlst[11] = '\0';
@@ -770,6 +776,8 @@ bool SimpleScope::ReadScopeStatus()
     GetDEEncoder(&currentDEEncoder);
     DEBUGF(DBG_SCOPE, "Current encoders RA=%ld DE=%ld", 
         static_cast<long>(currentRAEncoder), static_cast<long>(currentDEEncoder));
+
+    DEBUGF(DBG_SCOPE, "Julian date: %f Longitude: %f Lst: %f", juliandate, lng, lst);
     StepsToRADE(currentRAEncoder, currentDEEncoder, lst, &currentRA, &currentDEC, &currentHA, &pierSide);
     setPierSide(pierSide);
 
