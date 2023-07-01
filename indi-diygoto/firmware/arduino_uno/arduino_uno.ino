@@ -4,10 +4,10 @@
  */
 #include <Arduino.h>
 #include <elapsedMillis.h>
-
 #include <AccelStepper.h>
 #include <MultiStepper.h>
-
+#include <Adafruit_MotorShield.h>
+#include <Wire.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -28,7 +28,7 @@
 #define GOTO_RATE 800
 #define SLEWRATE_RA 80
 #define SLEWRATE_DE 80
-#define TRACK_RATE 0.905
+#define TRACK_RATE 1.810499244
 
 enum Command {
   GOTO = 65,       // "A RA DE"
@@ -55,8 +55,28 @@ enum MountStatus {
   IDLE
 };
 
-AccelStepper Axis_RA(AccelStepper::FULL4WIRE, RA_AIn1, RA_AIn2, RA_BIn1, RA_BIn2);
-AccelStepper Axis_DE(AccelStepper::FULL4WIRE, DE_AIn1, DE_AIn2, DE_BIn1, DE_BIn2);
+Adafruit_MotorShield AFMS = Adafruit_MotorShield();
+Adafruit_StepperMotor *myMotor1 = AFMS.getStepper(400, 1);
+Adafruit_StepperMotor *myMotor2 = AFMS.getStepper(400, 2);
+
+void forwardstep1() {
+  myMotor1->onestep(FORWARD, SINGLE);
+}
+
+void backwardstep1() {
+  myMotor1->onestep(BACKWARD, SINGLE);
+}
+
+void forwardstep2() {
+  myMotor2->onestep(FORWARD, SINGLE);
+}
+
+void backwardstep2() {
+  myMotor2->onestep(BACKWARD, SINGLE);
+}
+
+AccelStepper Axis_RA(forwardstep1, backwardstep1);
+AccelStepper Axis_DE(forwardstep2, backwardstep2);
 
 MountStatus mountStatus = PARKING;
 MountStatus axisStatus[2] {IDLE, IDLE};
@@ -281,6 +301,10 @@ void setup() {
   Serial.begin(115200);
   while (!Serial) {
     ;  // wait for serial port to connect
+  }
+  if (!AFMS.begin()) {
+    Serial.println("Could not find Motor Shield. Check wiring.");
+    while (1);
   }
   // Set maximum stepper speed
   Axis_RA.setMaxSpeed(1000);

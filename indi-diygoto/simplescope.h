@@ -22,8 +22,8 @@
 #define PULLEY_RATIO 60/20              // pulley reduction ratio
 #define EQ32_RA_WORM_GEAR_RATIO 130/1   // EQ3-2 RA axis worm gear reduction ratio
 #define EQ32_DE_WORM_GEAR_RATIO 65/1    // EQ3-2 DE axis worm gear reduction ratio
-#define STEPPER_STEPS_PER_REV 200       // steps per revolution
-#define STEPPER_STEPSIZE 1.8            // degrees/step
+#define STEPPER_STEPS_PER_REV 400       // steps per revolution
+#define STEPPER_STEPSIZE 0.9            // degrees/step
 #define STEPS_PER_RA_REV (STEPPER_STEPS_PER_REV * PULLEY_RATIO * EQ32_RA_WORM_GEAR_RATIO) // steps / one revolution on the RA axis
 #define STEPS_PER_DE_REV (STEPPER_STEPS_PER_REV * PULLEY_RATIO * EQ32_DE_WORM_GEAR_RATIO) // steps / one revolution on the DE axis
 #define STEPSIZE_RA (STEPPER_STEPSIZE / (PULLEY_RATIO * EQ32_RA_WORM_GEAR_RATIO)) // degrees/step
