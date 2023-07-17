@@ -6,8 +6,6 @@
 #include <elapsedMillis.h>
 #include <AccelStepper.h>
 #include <MultiStepper.h>
-#include <Adafruit_MotorShield.h>
-#include <Wire.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -55,6 +53,7 @@ enum MountStatus {
   IDLE
 };
 
+/*
 Adafruit_MotorShield AFMS = Adafruit_MotorShield();
 Adafruit_StepperMotor *myMotor1 = AFMS.getStepper(400, 1);
 Adafruit_StepperMotor *myMotor2 = AFMS.getStepper(400, 2);
@@ -74,9 +73,10 @@ void forwardstep2() {
 void backwardstep2() {
   myMotor2->onestep(BACKWARD, SINGLE);
 }
+*/
 
-AccelStepper Axis_RA(forwardstep1, backwardstep1);
-AccelStepper Axis_DE(forwardstep2, backwardstep2);
+AccelStepper Axis_RA(AccelStepper::FULL4WIRE, RA_AIn1, RA_AIn2, RA_BIn1, RA_BIn2);
+AccelStepper Axis_DE(AccelStepper::FULL4WIRE, DE_AIn1, DE_AIn2, DE_BIn1, DE_BIn2);
 
 MountStatus mountStatus = PARKING;
 MountStatus axisStatus[2] {IDLE, IDLE};
@@ -302,10 +302,12 @@ void setup() {
   while (!Serial) {
     ;  // wait for serial port to connect
   }
+  /*
   if (!AFMS.begin()) {
     Serial.println("Could not find Motor Shield. Check wiring.");
     while (1);
   }
+  */
   // Set maximum stepper speed
   Axis_RA.setMaxSpeed(1000);
   Axis_DE.setMaxSpeed(1000);

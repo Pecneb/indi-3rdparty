@@ -39,7 +39,7 @@ static std::unique_ptr<SimpleScope> simpleScope(new SimpleScope());
 SimpleScope::SimpleScope()
 {
     // We add an additional debug level so we can log verbose scope status
-    DBG_SCOPE = INDI::Logger::getInstance().addDebugLevel("Scope Verbose", "SCOPE");
+    DBG_SCOPE = INDI::Logger::getInstance().addDebugLevel("SCOPE", "SCOPE");
 
     currentHA = 0.0;
     currentDEC = 0.0;
@@ -136,6 +136,8 @@ bool SimpleScope::Handshake()
     if (cmd[0] != ERROR) return true;
     return false;
 }
+
+
 
 bool SimpleScope::Park() {
     if (TrackState == SCOPE_SLEWING) {
@@ -521,7 +523,7 @@ bool SimpleScope::MoveWE(INDI_DIR_WE dir, TelescopeMotionCommand command) {
             }
 
             LOGF_INFO("Starting %s slew.", dirStr);
-            if (DEInverted)
+            if (RAInverted)
                 rate = -rate;
             if (!SetRASlew(rate))
                 return false;
@@ -759,7 +761,7 @@ bool SimpleScope::ReadScopeStatus()
 
     fs_sexa(hrlst, lst, 2, 360000);
     hrlst[11] = '\0';
-    //DEBUGF(DBG_SCOPE, "Compute local time: lst=%2.8f (%s) - julian date=%8.8f", lst, hrlst, juliandate);
+    LOGF_DEBUG("Compute local time: lst=%2.8f (%s) - julian date=%8.8f", lst, hrlst, juliandate);
 
     /*
     TimeLSTNP.update(&lst, (char **)(datenames), 1);
@@ -776,7 +778,8 @@ bool SimpleScope::ReadScopeStatus()
     GetDEEncoder(&currentDEEncoder);
     DEBUGF(DBG_SCOPE, "Current encoders RA=%ld DE=%ld", 
         static_cast<long>(currentRAEncoder), static_cast<long>(currentDEEncoder));
-
+    //LOGF_INFO("Current encoders RA=%ld DE=%ld", 
+    //    static_cast<long>(currentRAEncoder), static_cast<long>(currentDEEncoder));
     DEBUGF(DBG_SCOPE, "Julian date: %f Longitude: %f Lst: %f", juliandate, lng, lst);
     StepsToRADE(currentRAEncoder, currentDEEncoder, lst, &currentRA, &currentDEC, &currentHA, &pierSide);
     setPierSide(pierSide);
@@ -785,11 +788,11 @@ bool SimpleScope::ReadScopeStatus()
     fs_sexa(CurrentRAString, currentRA, 2, 3600);
     fs_sexa(CurrentDEString, currentDEC, 2, 3600);
 
-    /*LOGF_DEBUG("Scope RA (%s) DE (%s) , PierSide (%s)",
+    LOGF_DEBUG("Scope RA (%s) DE (%s) , PierSide (%s)",
                        CurrentRAString,
                        CurrentDEString,
                        pierSide == PIER_EAST ? "East" : (pierSide == PIER_WEST ? "West" : "Unknown"));
-    */
+    
     static struct timeval ltv
     {
         0, 0
